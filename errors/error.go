@@ -7,4 +7,12 @@ var (
 	ErrUninitializedDB = errors.New("db manager is not initialized")
 
 	ErrRecordNotExists = errors.New("record does not exists")
+
+	ErrBlockHeightMustBeBiggerThanZero = errors.New("block height must be bigger than zero")
+
+	ErrInvalidKey = errors.New("invalid key")
+
+	ErrAmountMustBeBiggerThanZero = errors.New("amount must be bigger than zero")
+
+	ErrNilAction = errors.New("nil action")
 )

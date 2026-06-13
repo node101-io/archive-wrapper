@@ -1,9 +1,9 @@
 package database
 
 import (
+	"archive-wrapper/errors"
 	archiveTypes "archive-wrapper/types"
 	"encoding/binary"
-	"fmt"
 )
 
 func IntToBytes(height int64) []byte {
@@ -13,32 +13,26 @@ func IntToBytes(height int64) []byte {
 }
 
 func validateRecord(record archiveTypes.DbRecord) error {
+
 	if record.Key < 0 {
-		return fmt.Errorf("record key %d must be non-negative", record.Key)
+		return errors.ErrBlockHeightMustBeBiggerThanZero
 	}
 
-	if len(record.Actions) == 0 {
-		return fmt.Errorf("record for key %d must contain at least one action", record.Key)
-	}
-
-	for i, act := range record.Actions {
+	for _, act := range record.Actions {
 		if act == nil {
-			return fmt.Errorf("record action[%d] is nil", i)
+			return errors.ErrNilAction
 		}
 
 		if act.BlockHeight < 0 {
-			return fmt.Errorf("record action[%d] has negative block height %d", i, act.BlockHeight)
+			return errors.ErrBlockHeightMustBeBiggerThanZero
 		}
 
 		if act.BlockHeight != record.Key {
-			return fmt.Errorf(
-				"record key %d does not match action[%d] block height %d",
-				record.Key, i, act.BlockHeight,
-			)
+			return errors.ErrInvalidKey
 		}
 
 		if act.Amount <= 0 {
-			return fmt.Errorf("record action[%d] has invalid amount %d", i, act.Amount)
+			return errors.ErrAmountMustBeBiggerThanZero
 		}
 	}
 
