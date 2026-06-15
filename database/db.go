@@ -2,6 +2,7 @@ package database
 
 import (
 	"archive-wrapper/errors"
+	"archive-wrapper/types"
 
 	archiveTypes "archive-wrapper/types"
 	"fmt"
@@ -91,6 +92,20 @@ func (manager *DbManager) Get(height int64) (archiveTypes.DbRecord, error) {
 	}
 
 	return record, nil
+}
+
+func (manager *DbManager) InsertBlockHeight(height int64) error {
+	return manager.db.Put([]byte(types.BlockHeightDatabaseKey), IntToBytes(height), nil)
+}
+
+func (manager *DbManager) GetBlockHeight() (int64, error) {
+
+	record, err := manager.db.Get([]byte(types.BlockHeightDatabaseKey), nil)
+	if err != nil {
+		return 0, err
+	}
+
+	return BytesToInt(record), nil
 }
 
 func (manager *DbManager) Close() error {

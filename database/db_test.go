@@ -15,6 +15,8 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
+	defer manager.Close()
+
 	want := archiveTypes.DbRecord{
 		Key: 7,
 		Actions: []*archiveTypes.Action{
@@ -42,4 +44,31 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 	require.Equal(t, got.Actions[0].FeePayer, want.Actions[0].FeePayer)
 	require.Equal(t, got.Actions[0].ActionType, want.Actions[0].ActionType)
 	require.Equal(t, got.Actions[0].Amount, want.Actions[0].Amount)
+
+}
+
+func TestDbManagerInsertBlockHeight(t *testing.T) {
+
+	manager, err := NewDbManager()
+	require.NoError(t, err)
+	require.NotNil(t, manager)
+
+	var currentHeight int64 = 8
+
+	err = manager.InsertBlockHeight(currentHeight)
+	require.NoError(t, err)
+
+	got, err := manager.GetBlockHeight()
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, got, currentHeight)
+
+	currentHeight += 1
+	err = manager.InsertBlockHeight(currentHeight)
+	require.NoError(t, err)
+
+	got, err = manager.GetBlockHeight()
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
 }

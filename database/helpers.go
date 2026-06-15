@@ -12,6 +12,10 @@ func IntToBytes(height int64) []byte {
 	return b[:]
 }
 
+func BytesToInt(b []byte) int64 {
+	return int64(binary.BigEndian.Uint64(b))
+}
+
 func validateRecord(record archiveTypes.DbRecord) error {
 
 	if record.Key < 0 {

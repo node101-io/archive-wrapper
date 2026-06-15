@@ -4,7 +4,7 @@ package actions.v1;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "types;actionpb";
+option go_package = "types;types";
 
 enum ActionType {
   UNSPECIFIED = 0;
