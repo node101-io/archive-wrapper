@@ -22,4 +22,6 @@ var (
 	ErrMissingFeePayer   = errors.New("missing fee payer")
 
 	ErrInvalidBlockRange = errors.New("invalid block range")
+
+	ErrNilMinaClient = errors.New("nil mina client")
 )
