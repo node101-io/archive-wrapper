@@ -6,8 +6,6 @@ var (
 	ErrNilManager      = errors.New("nil manager")
 	ErrUninitializedDB = errors.New("db manager is not initialized")
 
-	ErrRecordNotExists = errors.New("record does not exists")
-
 	ErrBlockHeightMustBeBiggerThanZero = errors.New("block height must be bigger than zero")
 
 	ErrInvalidKey = errors.New("invalid key")
@@ -25,4 +23,6 @@ var (
 
 	ErrNilMinaClient      = errors.New("nil mina client")
 	ErrInvalidBlockHeight = errors.New("invalid block height")
+
+	ErrNoActionsInBlock = errors.New("no actions in this block")
 )

@@ -19,8 +19,20 @@ func (q *Query) ActionsByBlockHeight(ctx context.Context, in *QueryActionsByBloc
 		return nil, err
 	}
 
+	if in.BlockHeight < 0 {
+		return nil, cosmosErrors.Wrap(errors.ErrInvalidBlockHeight, "block height must be greater than 0")
+	}
+
 	if height < in.BlockHeight {
 		return nil, cosmosErrors.Wrap(errors.ErrInvalidBlockHeight, "higher than latest block")
+	}
+
+	exists, err := q.db.Has(in.BlockHeight)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, errors.ErrNoActionsInBlock
 	}
 
 	dbRecord, err := q.db.Get(in.BlockHeight)
