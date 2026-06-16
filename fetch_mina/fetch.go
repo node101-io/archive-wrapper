@@ -3,9 +3,7 @@ package fetchmina
 import (
 	"archive-wrapper/types"
 	"context"
-	"net/http"
 	"strconv"
-	"time"
 
 	"archive-wrapper/errors"
 
@@ -14,10 +12,16 @@ import (
 	"github.com/node101-io/mina-signer-go/address"
 )
 
-var ArchiveGraphQLEndpoint = "https://api.minascan.io/archive/mainnet/v1/graphql"
+type MinaClient struct {
+	client graphql.Client
+	ctx    context.Context
+}
 
-var archiveHTTPClient = &http.Client{
-	Timeout: 15 * time.Second,
+func NewMinaClient(client graphql.Client, ctx context.Context) *MinaClient {
+	return &MinaClient{
+		client: client,
+		ctx:    ctx,
+	}
 }
 
 const (
@@ -26,12 +30,9 @@ const (
 	minimumActionFields = actionAmountIndex + 1
 )
 
-func GetMinaBlockHeight() (int64, error) {
+func (c *MinaClient) GetMinaBlockHeight() (int64, error) {
 
-	client := graphql.NewClient(ArchiveGraphQLEndpoint, archiveHTTPClient)
-	ctx := context.Background()
-
-	resp, err := MinaBlockHeight(ctx, client)
+	resp, err := MinaBlockHeight(c.ctx, c.client)
 	if err != nil {
 		return 0, err
 	}
@@ -39,19 +40,16 @@ func GetMinaBlockHeight() (int64, error) {
 	return int64(resp.NetworkState.MaxBlockHeight.PendingMaxBlockHeight), nil
 }
 
-func fetchActions(start, end int) ([]types.Action, error) {
+func (c *MinaClient) FetchActions(start, end int) ([]types.Action, error) {
 
 	if start > end {
 		return nil, cosmosErrors.Wrap(errors.ErrInvalidBlockRange, "start is bigger than end")
 
 	}
 
-	client := graphql.NewClient(ArchiveGraphQLEndpoint, archiveHTTPClient)
-	ctx := context.Background()
-
 	resp, err := MinaArchiveActions(
-		ctx,
-		client,
+		c.ctx,
+		c.client,
 		types.ContractAddress,
 		start,
 		end,
