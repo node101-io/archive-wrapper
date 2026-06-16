@@ -15,4 +15,11 @@ var (
 	ErrAmountMustBeBiggerThanZero = errors.New("amount must be bigger than zero")
 
 	ErrNilAction = errors.New("nil action")
+
+	ErrInvalidActionType = errors.New("invalid action type")
+	ErrInvalidAmount     = errors.New("invalid action amount")
+	ErrInvalidActionData = errors.New("invalid action data")
+	ErrMissingFeePayer   = errors.New("missing fee payer")
+
+	ErrInvalidBlockRange = errors.New("invalid block range")
 )
