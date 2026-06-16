@@ -23,5 +23,6 @@ var (
 
 	ErrInvalidBlockRange = errors.New("invalid block range")
 
-	ErrNilMinaClient = errors.New("nil mina client")
+	ErrNilMinaClient      = errors.New("nil mina client")
+	ErrInvalidBlockHeight = errors.New("invalid block height")
 )

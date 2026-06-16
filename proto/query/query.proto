@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package query;
+
+import "actions/v1/action.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "query;query";
+
+service Query {
+  rpc ActionsByBlockHeight(QueryActionsByBlockHeightRequest) returns (QueryActionsByBlockHeightResponse);
+}
+
+message QueryActionsByBlockHeightRequest {
+  option (gogoproto.goproto_getters) = false;
+
+  int64 block_height = 1;
+}
+
+message QueryActionsByBlockHeightResponse {
+  option (gogoproto.goproto_getters) = false;
+
+  repeated actions.v1.Action actions = 1;
+}
