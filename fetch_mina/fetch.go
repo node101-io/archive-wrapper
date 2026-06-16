@@ -125,17 +125,24 @@ func parseActionData(data []string) (types.ActionType, int64, error) {
 		return 0, 0, errors.ErrInvalidActionType
 	}
 
-	if actionTypeValue == int(types.ActionType_UNSPECIFIED) {
-		return types.ActionType_UNSPECIFIED, 0, cosmosErrors.Wrap(errors.ErrInvalidActionType, "unspecified action type")
+	switch actionTypeValue {
+	case int(types.ActionType_UNSPECIFIED):
+		return types.ActionType_UNSPECIFIED, 0, nil
+
+	case int(types.ActionType_DEPOSIT), int(types.ActionType_WITHDRAW):
+
+		amount, err := strconv.ParseInt(data[actionAmountIndex], 10, 64)
+		if err != nil {
+			return 0, 0, errors.ErrInvalidAmount
+		}
+		if amount <= 0 {
+			return 0, 0, cosmosErrors.Wrap(errors.ErrInvalidAmount, "non-positive amount")
+		}
+
+		return types.ActionType(actionTypeValue), amount, nil
+
+	default:
+		return 0, 0, errors.ErrInvalidActionType
 	}
 
-	amount, err := strconv.ParseInt(data[actionAmountIndex], 10, 64)
-	if err != nil {
-		return 0, 0, errors.ErrInvalidAmount
-	}
-	if amount <= 0 {
-		return 0, 0, cosmosErrors.Wrap(errors.ErrInvalidAmount, "non-positive amount")
-	}
-
-	return types.ActionType(actionTypeValue), amount, nil
 }
