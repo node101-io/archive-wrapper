@@ -11,15 +11,13 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
-const path string = "database"
-
 type DbManager struct {
 	db *leveldb.DB
 }
 
 func NewDbManager() (*DbManager, error) {
 
-	db, err := leveldb.OpenFile(path, nil)
+	db, err := leveldb.OpenFile(types.DbRecordPath, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open leveldb: %w", err)
 	}
@@ -95,10 +93,19 @@ func (manager *DbManager) Get(height int64) (archiveTypes.DbRecord, error) {
 }
 
 func (manager *DbManager) InsertBlockHeight(height int64) error {
+
+	if err := manager.Validate(); err != nil {
+		return err
+	}
+
 	return manager.db.Put([]byte(types.BlockHeightDatabaseKey), IntToBytes(height), nil)
 }
 
 func (manager *DbManager) GetBlockHeight() (int64, error) {
+
+	if err := manager.Validate(); err != nil {
+		return 0, err
+	}
 
 	record, err := manager.db.Get([]byte(types.BlockHeightDatabaseKey), nil)
 	if err != nil {
