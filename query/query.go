@@ -14,6 +14,18 @@ type Query struct {
 
 func (q *Query) ActionsByBlockHeight(ctx context.Context, in *QueryActionsByBlockHeightRequest) (*QueryActionsByBlockHeightResponse, error) {
 
+	if q == nil {
+		return nil, errors.ErrNilQuery
+	}
+
+	if q.db == nil {
+		return nil, errors.ErrNilManager
+	}
+
+	if in == nil {
+		return nil, errors.ErrInvalidRequest
+	}
+
 	height, err := q.db.GetBlockHeight()
 	if err != nil {
 		return nil, err

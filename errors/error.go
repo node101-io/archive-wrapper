@@ -3,7 +3,7 @@ package errors
 import "errors"
 
 var (
-	ErrNilManager      = errors.New("nil manager")
+	ErrNilManager      = errors.New("nil db manager")
 	ErrUninitializedDB = errors.New("db manager is not initialized")
 
 	ErrBlockHeightMustBeBiggerThanZero = errors.New("block height must be bigger than zero")
@@ -25,4 +25,7 @@ var (
 	ErrInvalidBlockHeight = errors.New("invalid block height")
 
 	ErrNoActionsInBlock = errors.New("no actions in this block")
+
+	ErrNilQuery       = errors.New("nil query")
+	ErrInvalidRequest = errors.New("invalid query request")
 )
