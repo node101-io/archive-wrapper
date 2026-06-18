@@ -1,6 +1,6 @@
 module archive-wrapper
 
-go 1.26.4
+go 1.26
 
 require (
 	cosmossdk.io/errors v1.1.0
