@@ -55,7 +55,8 @@ func NewIndexer(
 }
 
 func (indexer *Indexer) Run(ctx context.Context) error {
-	if err := indexer.indexAvailableBlocks(); err != nil {
+
+	if err := indexer.indexAvailableBlocks(ctx); err != nil {
 		return err
 	}
 
@@ -68,15 +69,16 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 			return ctx.Err()
 
 		case <-ticker.C:
-			if err := indexer.indexAvailableBlocks(); err != nil {
+			if err := indexer.indexAvailableBlocks(ctx); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (indexer *Indexer) indexAvailableBlocks() error {
-	latestBlockHeight, err := indexer.client.GetMinaBlockHeight()
+func (indexer *Indexer) indexAvailableBlocks(ctx context.Context) error {
+
+	latestBlockHeight, err := indexer.client.GetMinaBlockHeight(ctx)
 	if err != nil {
 		return err
 	}
@@ -91,7 +93,7 @@ func (indexer *Indexer) indexAvailableBlocks() error {
 		endBlockHeight = latestBlockHeight
 	}
 
-	actions, err := indexer.client.FetchActions(int(nextBlockHeight), int(endBlockHeight))
+	actions, err := indexer.client.FetchActions(ctx, int(nextBlockHeight), int(endBlockHeight))
 	if err != nil {
 		return err
 	}

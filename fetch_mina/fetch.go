@@ -14,13 +14,11 @@ import (
 
 type MinaClient struct {
 	client graphql.Client
-	ctx    context.Context
 }
 
 func NewMinaClient(client graphql.Client, ctx context.Context) *MinaClient {
 	return &MinaClient{
 		client: client,
-		ctx:    ctx,
 	}
 }
 
@@ -30,9 +28,9 @@ const (
 	minimumActionFields = actionAmountIndex + 1
 )
 
-func (c *MinaClient) GetMinaBlockHeight() (int64, error) {
+func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 
-	resp, err := MinaBlockHeight(c.ctx, c.client)
+	resp, err := MinaBlockHeight(ctx, c.client)
 	if err != nil {
 		return 0, err
 	}
@@ -40,7 +38,7 @@ func (c *MinaClient) GetMinaBlockHeight() (int64, error) {
 	return int64(resp.NetworkState.MaxBlockHeight.PendingMaxBlockHeight), nil
 }
 
-func (c *MinaClient) FetchActions(start, end int) ([]types.Action, error) {
+func (c *MinaClient) FetchActions(ctx context.Context, start, end int) ([]types.Action, error) {
 
 	if start > end {
 		return nil, cosmosErrors.Wrap(errors.ErrInvalidBlockRange, "start is bigger than end")
@@ -48,7 +46,7 @@ func (c *MinaClient) FetchActions(start, end int) ([]types.Action, error) {
 	}
 
 	resp, err := MinaArchiveActions(
-		c.ctx,
+		ctx,
 		c.client,
 		types.ContractAddress,
 		start,
