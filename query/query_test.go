@@ -35,7 +35,7 @@ func TestQuery(t *testing.T) {
 	err = manager.InsertBlockHeight(want.Key)
 	require.NoError(t, err)
 
-	q := &Query{db: manager}
+	q := NewQuery(manager)
 	got, err := q.ActionsByBlockHeight(context.Background(), &QueryActionsByBlockHeightRequest{
 		BlockHeight: 7,
 	})

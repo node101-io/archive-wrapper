@@ -12,6 +12,12 @@ type Query struct {
 	db *database.DbManager
 }
 
+func NewQuery(db *database.DbManager) *Query {
+	return &Query{
+		db: db,
+	}
+}
+
 func (q *Query) ActionsByBlockHeight(ctx context.Context, in *QueryActionsByBlockHeightRequest) (*QueryActionsByBlockHeightResponse, error) {
 
 	if q == nil {
