@@ -1,11 +1,11 @@
 package query
 
 import (
+	"archive-wrapper/apperrors"
 	"archive-wrapper/database"
-	"archive-wrapper/errors"
 	"context"
 
-	cosmosErrors "cosmossdk.io/errors"
+	cosmoserrors "cosmossdk.io/errors"
 )
 
 type Query struct {
@@ -21,15 +21,15 @@ func NewQuery(db *database.DbManager) *Query {
 func (q *Query) ActionsByBlockHeight(ctx context.Context, in *QueryActionsByBlockHeightRequest) (*QueryActionsByBlockHeightResponse, error) {
 
 	if q == nil {
-		return nil, errors.ErrNilQuery
+		return nil, apperrors.ErrNilQuery
 	}
 
 	if q.db == nil {
-		return nil, errors.ErrNilManager
+		return nil, apperrors.ErrNilManager
 	}
 
 	if in == nil {
-		return nil, errors.ErrInvalidRequest
+		return nil, apperrors.ErrInvalidRequest
 	}
 
 	height, err := q.db.GetBlockHeight()
@@ -38,11 +38,11 @@ func (q *Query) ActionsByBlockHeight(ctx context.Context, in *QueryActionsByBloc
 	}
 
 	if in.BlockHeight < 0 {
-		return nil, cosmosErrors.Wrap(errors.ErrInvalidBlockHeight, "block height must be greater than 0")
+		return nil, cosmoserrors.Wrap(apperrors.ErrInvalidBlockHeight, "block height must be greater than 0")
 	}
 
 	if height < in.BlockHeight {
-		return nil, cosmosErrors.Wrap(errors.ErrInvalidBlockHeight, "higher than latest block")
+		return nil, cosmoserrors.Wrap(apperrors.ErrInvalidBlockHeight, "higher than latest block")
 	}
 
 	exists, err := q.db.Has(in.BlockHeight)
@@ -50,7 +50,7 @@ func (q *Query) ActionsByBlockHeight(ctx context.Context, in *QueryActionsByBloc
 		return nil, err
 	}
 	if !exists {
-		return nil, errors.ErrNoActionsInBlock
+		return nil, apperrors.ErrNoActionsInBlock
 	}
 
 	dbRecord, err := q.db.Get(in.BlockHeight)

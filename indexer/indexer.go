@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"archive-wrapper/apperrors"
 	"archive-wrapper/database"
-	"archive-wrapper/errors"
 	fetchmina "archive-wrapper/fetchmina"
 )
 
@@ -26,7 +26,7 @@ func NewIndexer(
 ) (*Indexer, error) {
 
 	if client == nil {
-		return nil, errors.ErrNilMinaClient
+		return nil, apperrors.ErrNilMinaClient
 	}
 
 	if err := db.Validate(); err != nil {
@@ -34,15 +34,15 @@ func NewIndexer(
 	}
 
 	if startBlockHeight < 0 {
-		return nil, errors.ErrBlockHeightMustBeBiggerThanZero
+		return nil, apperrors.ErrBlockHeightMustBeBiggerThanZero
 	}
 
 	if blockBatchSize <= 0 {
-		return nil, errors.ErrInvalidBlockRange
+		return nil, apperrors.ErrInvalidBlockRange
 	}
 
 	if interval <= 0 {
-		return nil, errors.ErrInvalidBlockRange
+		return nil, apperrors.ErrInvalidBlockRange
 	}
 
 	return &Indexer{

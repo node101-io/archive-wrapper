@@ -1,7 +1,7 @@
 package database
 
 import (
-	"archive-wrapper/errors"
+	"archive-wrapper/apperrors"
 	archiveTypes "archive-wrapper/types"
 	"encoding/binary"
 )
@@ -15,7 +15,7 @@ func encodeBlockHeight(height int64) []byte {
 func decodeBlockHeight(b []byte) (int64, error) {
 
 	if len(b) != 8 {
-		return 0, errors.ErrInvalidLenght
+		return 0, apperrors.ErrInvalidLenght
 	}
 
 	return int64(binary.BigEndian.Uint64(b)), nil
@@ -24,24 +24,24 @@ func decodeBlockHeight(b []byte) (int64, error) {
 func validateRecord(record archiveTypes.DbRecord) error {
 
 	if record.Key < 0 {
-		return errors.ErrBlockHeightMustBeBiggerThanZero
+		return apperrors.ErrBlockHeightMustBeBiggerThanZero
 	}
 
 	for _, act := range record.Actions {
 		if act == nil {
-			return errors.ErrNilAction
+			return apperrors.ErrNilAction
 		}
 
 		if act.BlockHeight < 0 {
-			return errors.ErrBlockHeightMustBeBiggerThanZero
+			return apperrors.ErrBlockHeightMustBeBiggerThanZero
 		}
 
 		if act.BlockHeight != record.Key {
-			return errors.ErrInvalidKey
+			return apperrors.ErrInvalidKey
 		}
 
 		if act.Amount <= 0 {
-			return errors.ErrAmountMustBeBiggerThanZero
+			return apperrors.ErrAmountMustBeBiggerThanZero
 		}
 	}
 

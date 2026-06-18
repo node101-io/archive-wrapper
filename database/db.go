@@ -1,7 +1,7 @@
 package database
 
 import (
-	"archive-wrapper/errors"
+	"archive-wrapper/apperrors"
 	"archive-wrapper/types"
 
 	archiveTypes "archive-wrapper/types"
@@ -30,11 +30,11 @@ func NewDbManager(path string) (*DbManager, error) {
 func (manager *DbManager) Validate() error {
 
 	if manager == nil {
-		return errors.ErrNilManager
+		return apperrors.ErrNilManager
 	}
 
 	if manager.db == nil {
-		return errors.ErrUninitializedDB
+		return apperrors.ErrUninitializedDB
 	}
 
 	return nil
