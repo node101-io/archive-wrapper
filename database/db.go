@@ -15,9 +15,9 @@ type DbManager struct {
 	db *leveldb.DB
 }
 
-func NewDbManager() (*DbManager, error) {
+func NewDbManager(path string) (*DbManager, error) {
 
-	db, err := leveldb.OpenFile(types.DbRecordPath, nil)
+	db, err := leveldb.OpenFile(path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open leveldb: %w", err)
 	}

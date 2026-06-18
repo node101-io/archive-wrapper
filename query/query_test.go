@@ -11,7 +11,7 @@ import (
 
 func TestQuery(t *testing.T) {
 
-	manager, err := database.NewDbManager()
+	manager, err := database.NewDbManager(t.TempDir())
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 

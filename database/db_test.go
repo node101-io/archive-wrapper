@@ -10,7 +10,7 @@ import (
 
 func TestDbManager_InsertThenGet(t *testing.T) {
 
-	manager, err := NewDbManager()
+	manager, err := NewDbManager(t.TempDir())
 
 	require.NoError(t, err)
 	require.NotNil(t, manager)
@@ -49,9 +49,11 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 
 func TestDbManagerInsertBlockHeight(t *testing.T) {
 
-	manager, err := NewDbManager()
+	manager, err := NewDbManager(t.TempDir())
 	require.NoError(t, err)
 	require.NotNil(t, manager)
+
+	defer manager.Close()
 
 	var currentHeight int64 = 8
 
