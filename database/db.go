@@ -55,7 +55,7 @@ func (manager *DbManager) Insert(record archiveTypes.DbRecord) error {
 		return err
 	}
 
-	return manager.db.Put(IntToBytes(record.Key), marshalled, nil)
+	return manager.db.Put(encodeBlockHeight(record.Key), marshalled, nil)
 }
 
 func (manager *DbManager) Has(height int64) (bool, error) {
@@ -64,7 +64,7 @@ func (manager *DbManager) Has(height int64) (bool, error) {
 		return false, err
 	}
 
-	exists, err := manager.db.Has(IntToBytes(height), nil)
+	exists, err := manager.db.Has(encodeBlockHeight(height), nil)
 	if err != nil {
 		return false, err
 	}
@@ -78,7 +78,7 @@ func (manager *DbManager) Get(height int64) (archiveTypes.DbRecord, error) {
 		return archiveTypes.DbRecord{}, err
 	}
 
-	marshalled, err := manager.db.Get(IntToBytes(height), nil)
+	marshalled, err := manager.db.Get(encodeBlockHeight(height), nil)
 	if err != nil {
 		return archiveTypes.DbRecord{}, err
 	}
@@ -98,7 +98,7 @@ func (manager *DbManager) InsertBlockHeight(height int64) error {
 		return err
 	}
 
-	return manager.db.Put([]byte(types.BlockHeightDatabaseKey), IntToBytes(height), nil)
+	return manager.db.Put([]byte(types.BlockHeightDatabaseKey), encodeBlockHeight(height), nil)
 }
 
 func (manager *DbManager) GetBlockHeight() (int64, error) {
@@ -112,7 +112,7 @@ func (manager *DbManager) GetBlockHeight() (int64, error) {
 		return 0, err
 	}
 
-	return BytesToInt(record), nil
+	return decodeBlockHeight(record)
 }
 
 func (manager *DbManager) Close() error {

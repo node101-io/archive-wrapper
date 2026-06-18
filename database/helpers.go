@@ -6,14 +6,19 @@ import (
 	"encoding/binary"
 )
 
-func IntToBytes(height int64) []byte {
+func encodeBlockHeight(height int64) []byte {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(height))
 	return b[:]
 }
 
-func BytesToInt(b []byte) int64 {
-	return int64(binary.BigEndian.Uint64(b))
+func decodeBlockHeight(b []byte) (int64, error) {
+
+	if len(b) != 8 {
+		return 0, errors.ErrInvalidLenght
+	}
+
+	return int64(binary.BigEndian.Uint64(b)), nil
 }
 
 func validateRecord(record archiveTypes.DbRecord) error {
