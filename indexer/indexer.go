@@ -6,7 +6,7 @@ import (
 
 	"archive-wrapper/database"
 	"archive-wrapper/errors"
-	fetchmina "archive-wrapper/fetch_mina"
+	fetchmina "archive-wrapper/fetchmina"
 )
 
 type Indexer struct {
