@@ -102,6 +102,14 @@ func (manager *DbManager) InsertBlockHeight(height int64) error {
 	return manager.db.Put([]byte(types.BlockHeightDatabaseKey), encodeBlockHeight(height), nil)
 }
 
+func (manager *DbManager) HasBlockHeight() (bool, error) {
+	if err := manager.Validate(); err != nil {
+		return false, err
+	}
+
+	return manager.db.Has([]byte(types.BlockHeightDatabaseKey), nil)
+}
+
 func (manager *DbManager) GetBlockHeight() (int64, error) {
 
 	if err := manager.Validate(); err != nil {

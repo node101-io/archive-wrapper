@@ -45,10 +45,25 @@ func NewIndexer(
 		return nil, apperrors.ErrInvalidBlockRange
 	}
 
+	var startingBlockHeight int64
+
+	exists, err := db.HasBlockHeight()
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		startingBlockHeight, err = db.GetBlockHeight()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		startingBlockHeight = startBlockHeight
+	}
+
 	return &Indexer{
 		client:                 client,
 		db:                     db,
-		lastIndexedBlockHeight: startBlockHeight - 1,
+		lastIndexedBlockHeight: startingBlockHeight,
 		blockBatchSize:         blockBatchSize,
 		interval:               interval,
 	}, nil
