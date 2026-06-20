@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	actions "github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/database"
-	"github.com/node101-io/archive-wrapper/types"
 
 	"github.com/stretchr/testify/require"
 )
@@ -18,13 +18,13 @@ func TestQuery(t *testing.T) {
 
 	defer manager.Close()
 
-	want := types.DbRecord{
+	want := actions.DbRecord{
 		Key: 7,
-		Actions: []*types.Action{
+		Actions: []*actions.Action{
 			{
 				BlockHeight: 7,
 				FeePayer:    []byte("alice"),
-				ActionType:  types.ActionType_DEPOSIT,
+				ActionType:  actions.ActionType_DEPOSIT,
 				Amount:      42,
 			},
 		},

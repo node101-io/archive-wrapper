@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package actions.v1;
+package actions;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "types;types";
+option go_package = "github.com/node101-io/archive-wrapper/actions;actions";
 
 enum ActionType {
   UNSPECIFIED = 0;

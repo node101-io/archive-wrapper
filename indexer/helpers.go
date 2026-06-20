@@ -3,14 +3,14 @@ package indexer
 import (
 	"sort"
 
-	archiveTypes "github.com/node101-io/archive-wrapper/types"
+	actions "github.com/node101-io/archive-wrapper/actions"
 )
 
 // Groups actions by block height and creates a DbRecord for each block height with its corresponding actions.
-func IndexActions(actions []archiveTypes.Action) []archiveTypes.DbRecord {
-	m := make(map[int64][]*archiveTypes.Action)
+func IndexActions(items []actions.Action) []actions.DbRecord {
+	m := make(map[int64][]*actions.Action)
 
-	for _, act := range actions {
+	for _, act := range items {
 		m[act.BlockHeight] = append(m[act.BlockHeight], &act)
 	}
 
@@ -23,9 +23,9 @@ func IndexActions(actions []archiveTypes.Action) []archiveTypes.DbRecord {
 		return heights[i] < heights[j]
 	})
 
-	records := make([]archiveTypes.DbRecord, 0, len(m))
+	records := make([]actions.DbRecord, 0, len(m))
 	for _, height := range heights {
-		record := archiveTypes.DbRecord{
+		record := actions.DbRecord{
 			Key:     height,
 			Actions: m[height],
 		}

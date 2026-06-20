@@ -6,6 +6,8 @@ import (
 
 	"github.com/node101-io/archive-wrapper/types"
 
+	actions "github.com/node101-io/archive-wrapper/actions"
+
 	"github.com/node101-io/archive-wrapper/apperrors"
 
 	cosmosErrors "cosmossdk.io/errors"
@@ -39,7 +41,7 @@ func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 	return int64(resp.NetworkState.MaxBlockHeight.PendingMaxBlockHeight), nil
 }
 
-func (c *MinaClient) FetchActions(ctx context.Context, start, end int) ([]types.Action, error) {
+func (c *MinaClient) FetchActions(ctx context.Context, start, end int) ([]actions.Action, error) {
 
 	if start > end {
 		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidBlockRange, "start is bigger than end")
@@ -67,7 +69,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, start, end int) ([]types.
 		}
 	}
 
-	actions := make([]types.Action, 0)
+	actions := make([]actions.Action, 0)
 	for _, group := range resp.Actions {
 		for _, raw := range group.ActionData {
 			feePayer, ok := feePayerByHash[raw.TransactionInfo.Hash]
@@ -90,13 +92,13 @@ func (c *MinaClient) FetchActions(ctx context.Context, start, end int) ([]types.
 	return actions, nil
 }
 
-func actionFromRawData(blockHeight int, feePayer string, data []string) (*types.Action, error) {
+func actionFromRawData(blockHeight int, feePayer string, data []string) (*actions.Action, error) {
 
 	actionType, amount, err := parseActionData(data)
 	if err != nil {
 		return nil, err
 	}
-	if actionType == types.ActionType_UNSPECIFIED {
+	if actionType == actions.ActionType_UNSPECIFIED {
 		return nil, nil
 	}
 
@@ -105,7 +107,7 @@ func actionFromRawData(blockHeight int, feePayer string, data []string) (*types.
 		return nil, err
 	}
 
-	return &types.Action{
+	return &actions.Action{
 		BlockHeight: int64(blockHeight),
 		FeePayer:    minaAddr,
 		ActionType:  actionType,
@@ -113,7 +115,7 @@ func actionFromRawData(blockHeight int, feePayer string, data []string) (*types.
 	}, nil
 }
 
-func parseActionData(data []string) (types.ActionType, int64, error) {
+func parseActionData(data []string) (actions.ActionType, int64, error) {
 
 	if len(data) < minimumActionFields {
 		return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "missing fields")
@@ -125,10 +127,10 @@ func parseActionData(data []string) (types.ActionType, int64, error) {
 	}
 
 	switch actionTypeValue {
-	case int(types.ActionType_UNSPECIFIED):
-		return types.ActionType_UNSPECIFIED, 0, nil
+	case int(actions.ActionType_UNSPECIFIED):
+		return actions.ActionType_UNSPECIFIED, 0, nil
 
-	case int(types.ActionType_DEPOSIT), int(types.ActionType_WITHDRAW):
+	case int(actions.ActionType_DEPOSIT), int(actions.ActionType_WITHDRAW):
 
 		amount, err := strconv.ParseInt(data[actionAmountIndex], 10, 64)
 		if err != nil {
@@ -138,7 +140,7 @@ func parseActionData(data []string) (types.ActionType, int64, error) {
 			return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidAmount, "non-positive amount")
 		}
 
-		return types.ActionType(actionTypeValue), amount, nil
+		return actions.ActionType(actionTypeValue), amount, nil
 
 	default:
 		return 0, 0, apperrors.ErrInvalidActionType

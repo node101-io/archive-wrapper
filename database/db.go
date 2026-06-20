@@ -6,7 +6,8 @@ import (
 	"github.com/node101-io/archive-wrapper/types"
 
 	"fmt"
-	archiveTypes "github.com/node101-io/archive-wrapper/types"
+
+	actions "github.com/node101-io/archive-wrapper/actions"
 
 	proto "github.com/cosmos/gogoproto/proto"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -41,7 +42,7 @@ func (manager *DbManager) Validate() error {
 	return nil
 }
 
-func (manager *DbManager) Insert(record archiveTypes.DbRecord) error {
+func (manager *DbManager) Insert(record actions.DbRecord) error {
 
 	if err := manager.Validate(); err != nil {
 		return err
@@ -73,21 +74,21 @@ func (manager *DbManager) Has(height int64) (bool, error) {
 	return exists, err
 }
 
-func (manager *DbManager) Get(height int64) (archiveTypes.DbRecord, error) {
+func (manager *DbManager) Get(height int64) (actions.DbRecord, error) {
 
 	if err := manager.Validate(); err != nil {
-		return archiveTypes.DbRecord{}, err
+		return actions.DbRecord{}, err
 	}
 
 	marshalled, err := manager.db.Get(encodeBlockHeight(height), nil)
 	if err != nil {
-		return archiveTypes.DbRecord{}, err
+		return actions.DbRecord{}, err
 	}
 
-	var record archiveTypes.DbRecord
+	var record actions.DbRecord
 	err = proto.Unmarshal(marshalled, &record)
 	if err != nil {
-		return archiveTypes.DbRecord{}, err
+		return actions.DbRecord{}, err
 	}
 
 	return record, nil

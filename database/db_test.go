@@ -3,7 +3,7 @@ package database
 import (
 	"testing"
 
-	archiveTypes "github.com/node101-io/archive-wrapper/types"
+	"github.com/node101-io/archive-wrapper/actions"
 
 	"github.com/stretchr/testify/require"
 )
@@ -17,13 +17,13 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 
 	defer manager.Close()
 
-	want := archiveTypes.DbRecord{
+	want := actions.DbRecord{
 		Key: 7,
-		Actions: []*archiveTypes.Action{
+		Actions: []*actions.Action{
 			{
 				BlockHeight: 7,
 				FeePayer:    []byte("alice"),
-				ActionType:  archiveTypes.ActionType_DEPOSIT,
+				ActionType:  actions.ActionType_DEPOSIT,
 				Amount:      42,
 			},
 		},

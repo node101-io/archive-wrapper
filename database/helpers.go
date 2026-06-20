@@ -3,8 +3,8 @@ package database
 import (
 	"encoding/binary"
 
+	actions "github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
-	archiveTypes "github.com/node101-io/archive-wrapper/types"
 )
 
 func encodeBlockHeight(height int64) []byte {
@@ -22,7 +22,7 @@ func decodeBlockHeight(b []byte) (int64, error) {
 	return int64(binary.BigEndian.Uint64(b)), nil
 }
 
-func validateRecord(record archiveTypes.DbRecord) error {
+func validateRecord(record actions.DbRecord) error {
 
 	if record.Key < 0 {
 		return apperrors.ErrBlockHeightMustBeBiggerThanZero

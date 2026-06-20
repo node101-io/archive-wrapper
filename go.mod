@@ -1,4 +1,4 @@
-module "github.com/node101-io/archive-wrapper"
+module github.com/node101-io/archive-wrapper
 
 go 1.26
 
