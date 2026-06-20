@@ -3,7 +3,7 @@ package database
 import (
 	"testing"
 
-	archiveTypes "archive-wrapper/types"
+	archiveTypes "github.com/node101-io/archive-wrapper/types"
 
 	"github.com/stretchr/testify/require"
 )

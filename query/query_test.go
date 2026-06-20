@@ -1,10 +1,11 @@
 package query
 
 import (
-	"archive-wrapper/database"
-	"archive-wrapper/types"
 	"context"
 	"testing"
+
+	"github.com/node101-io/archive-wrapper/database"
+	"github.com/node101-io/archive-wrapper/types"
 
 	"github.com/stretchr/testify/require"
 )

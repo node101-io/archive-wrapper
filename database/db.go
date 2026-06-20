@@ -1,11 +1,12 @@
 package database
 
 import (
-	"archive-wrapper/apperrors"
-	"archive-wrapper/types"
+	"github.com/node101-io/archive-wrapper/apperrors"
 
-	archiveTypes "archive-wrapper/types"
+	"github.com/node101-io/archive-wrapper/types"
+
 	"fmt"
+	archiveTypes "github.com/node101-io/archive-wrapper/types"
 
 	proto "github.com/cosmos/gogoproto/proto"
 	"github.com/syndtr/goleveldb/leveldb"

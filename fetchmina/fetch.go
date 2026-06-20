@@ -1,11 +1,12 @@
 package fetchmina
 
 import (
-	"archive-wrapper/types"
 	"context"
 	"strconv"
 
-	"archive-wrapper/apperrors"
+	"github.com/node101-io/archive-wrapper/types"
+
+	"github.com/node101-io/archive-wrapper/apperrors"
 
 	cosmosErrors "cosmossdk.io/errors"
 	"github.com/Khan/genqlient/graphql"

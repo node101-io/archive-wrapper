@@ -4,12 +4,13 @@
 package query
 
 import (
-	types "archive-wrapper/types"
 	context "context"
 	fmt "fmt"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	types "github.com/node101-io/archive-wrapper/types"
 
 	_ "github.com/cosmos/gogoproto/gogoproto"
 	grpc1 "github.com/cosmos/gogoproto/grpc"

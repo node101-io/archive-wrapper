@@ -1,9 +1,10 @@
 package query
 
 import (
-	"archive-wrapper/apperrors"
-	"archive-wrapper/database"
 	"context"
+
+	"github.com/node101-io/archive-wrapper/apperrors"
+	"github.com/node101-io/archive-wrapper/database"
 
 	cosmoserrors "cosmossdk.io/errors"
 )

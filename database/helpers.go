@@ -1,9 +1,10 @@
 package database
 
 import (
-	"archive-wrapper/apperrors"
-	archiveTypes "archive-wrapper/types"
 	"encoding/binary"
+
+	"github.com/node101-io/archive-wrapper/apperrors"
+	archiveTypes "github.com/node101-io/archive-wrapper/types"
 )
 
 func encodeBlockHeight(height int64) []byte {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"archive-wrapper/apperrors"
-	"archive-wrapper/database"
-	fetchmina "archive-wrapper/fetchmina"
+	"github.com/node101-io/archive-wrapper/apperrors"
+	"github.com/node101-io/archive-wrapper/database"
+	fetchmina "github.com/node101-io/archive-wrapper/fetchmina"
 )
 
 type Indexer struct {
