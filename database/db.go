@@ -3,8 +3,6 @@ package database
 import (
 	"github.com/node101-io/archive-wrapper/apperrors"
 
-	"github.com/node101-io/archive-wrapper/types"
-
 	"fmt"
 
 	actions "github.com/node101-io/archive-wrapper/actions"
@@ -14,7 +12,8 @@ import (
 )
 
 type DbManager struct {
-	db *leveldb.DB
+	db                     *leveldb.DB
+	blockHeightDatabaseKey string
 }
 
 func NewDbManager(path string) (*DbManager, error) {
@@ -104,7 +103,7 @@ func (manager *DbManager) InsertBlockHeight(height int64) error {
 		return apperrors.ErrBlockHeightMustBeBiggerThanZero
 	}
 
-	return manager.db.Put([]byte(types.BlockHeightDatabaseKey), encodeBlockHeight(height), nil)
+	return manager.db.Put([]byte(manager.blockHeightDatabaseKey), encodeBlockHeight(height), nil)
 }
 
 func (manager *DbManager) HasBlockHeight() (bool, error) {
@@ -112,7 +111,7 @@ func (manager *DbManager) HasBlockHeight() (bool, error) {
 		return false, err
 	}
 
-	return manager.db.Has([]byte(types.BlockHeightDatabaseKey), nil)
+	return manager.db.Has([]byte(manager.blockHeightDatabaseKey), nil)
 }
 
 func (manager *DbManager) GetBlockHeight() (int64, error) {
@@ -121,7 +120,7 @@ func (manager *DbManager) GetBlockHeight() (int64, error) {
 		return 0, err
 	}
 
-	record, err := manager.db.Get([]byte(types.BlockHeightDatabaseKey), nil)
+	record, err := manager.db.Get([]byte(manager.blockHeightDatabaseKey), nil)
 	if err != nil {
 		return 0, err
 	}

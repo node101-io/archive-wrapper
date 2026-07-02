@@ -11,7 +11,6 @@ import (
 	actions "github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
-	"github.com/node101-io/archive-wrapper/types"
 	"github.com/node101-io/mina-signer-go/address"
 
 	"github.com/jackc/pgx/v5"
@@ -24,8 +23,9 @@ const (
 )
 
 type MinaClient struct {
-	conn    *pgx.Conn
-	queries *sqlcdb.Queries
+	conn            *pgx.Conn
+	queries         *sqlcdb.Queries
+	contractAddress string
 }
 
 func NewMinaClient(postgresURI string, ctx context.Context) (*MinaClient, error) {
@@ -79,7 +79,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, start, end int) ([]action
 	}
 
 	rows, err := c.queries.ListActionRows(ctx, sqlcdb.ListActionRowsParams{
-		ContractAddress:    types.ContractAddress,
+		ContractAddress:    c.contractAddress,
 		StartHeight:        int64(start),
 		EndHeightExclusive: int64(end + 1),
 	})
@@ -112,7 +112,7 @@ func (c *MinaClient) validate() error {
 		return fmt.Errorf("archive db connection is not initialized")
 	}
 
-	if strings.TrimSpace(types.ContractAddress) == "" {
+	if strings.TrimSpace(c.contractAddress) == "" {
 		return fmt.Errorf("contract address is empty")
 	}
 
