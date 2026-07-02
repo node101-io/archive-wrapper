@@ -24,7 +24,7 @@ func decodeBlockHeight(b []byte) (int64, error) {
 
 func validateRecord(record actions.DbRecord) error {
 
-	if record.Key < 0 {
+	if record.Key <= 0 {
 		return apperrors.ErrBlockHeightMustBeBiggerThanZero
 	}
 
@@ -33,7 +33,7 @@ func validateRecord(record actions.DbRecord) error {
 			return apperrors.ErrNilAction
 		}
 
-		if act.BlockHeight < 0 {
+		if act.BlockHeight <= 0 {
 			return apperrors.ErrBlockHeightMustBeBiggerThanZero
 		}
 

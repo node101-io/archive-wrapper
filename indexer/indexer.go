@@ -33,7 +33,7 @@ func NewIndexer(
 		return nil, err
 	}
 
-	if startBlockHeight < 0 {
+	if startBlockHeight <= 0 {
 		return nil, apperrors.ErrBlockHeightMustBeBiggerThanZero
 	}
 
@@ -57,7 +57,7 @@ func NewIndexer(
 			return nil, err
 		}
 	} else {
-		startingBlockHeight = startBlockHeight
+		startingBlockHeight = startBlockHeight - 1
 	}
 
 	return &Indexer{

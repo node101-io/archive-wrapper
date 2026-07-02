@@ -38,7 +38,7 @@ func (q *Query) ActionsByBlockHeight(ctx context.Context, in *QueryActionsByBloc
 		return nil, err
 	}
 
-	if in.BlockHeight < 0 {
+	if in.BlockHeight <= 0 {
 		return nil, cosmoserrors.Wrap(apperrors.ErrInvalidBlockHeight, "block height must be greater than 0")
 	}
 

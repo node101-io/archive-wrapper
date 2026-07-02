@@ -100,6 +100,10 @@ func (manager *DbManager) InsertBlockHeight(height int64) error {
 		return err
 	}
 
+	if height <= 0 {
+		return apperrors.ErrBlockHeightMustBeBiggerThanZero
+	}
+
 	return manager.db.Put([]byte(types.BlockHeightDatabaseKey), encodeBlockHeight(height), nil)
 }
 
