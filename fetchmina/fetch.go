@@ -2,28 +2,20 @@ package fetchmina
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strconv"
-
-	"github.com/node101-io/archive-wrapper/types"
-
-	actions "github.com/node101-io/archive-wrapper/actions"
-
-	"github.com/node101-io/archive-wrapper/apperrors"
+	"strings"
 
 	cosmosErrors "cosmossdk.io/errors"
-	"github.com/Khan/genqlient/graphql"
+	actions "github.com/node101-io/archive-wrapper/actions"
+	"github.com/node101-io/archive-wrapper/apperrors"
+	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
+	"github.com/node101-io/archive-wrapper/types"
 	"github.com/node101-io/mina-signer-go/address"
+
+	"github.com/jackc/pgx/v5"
 )
-
-type MinaClient struct {
-	client graphql.Client
-}
-
-func NewMinaClient(client graphql.Client, ctx context.Context) *MinaClient {
-	return &MinaClient{
-		client: client,
-	}
-}
 
 const (
 	actionTypeIndex     = 0
@@ -31,68 +23,119 @@ const (
 	minimumActionFields = actionAmountIndex + 1
 )
 
-func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
+type MinaClient struct {
+	conn    *pgx.Conn
+	queries *sqlcdb.Queries
+}
 
-	resp, err := MinaBlockHeight(ctx, c.client)
+func NewMinaClient(postgresURI string, ctx context.Context) (*MinaClient, error) {
+	if strings.TrimSpace(postgresURI) == "" {
+		postgresURI = readPostgresURI()
+	}
+
+	if strings.TrimSpace(postgresURI) == "" {
+		return nil, fmt.Errorf("postgres uri is empty")
+	}
+
+	conn, err := pgx.Connect(ctx, postgresURI)
 	if err != nil {
+		return nil, fmt.Errorf("connect to archive db: %w", err)
+	}
+
+	return &MinaClient{
+		conn:    conn,
+		queries: sqlcdb.New(conn),
+	}, nil
+}
+
+func (c *MinaClient) Close(ctx context.Context) error {
+	if c == nil || c.conn == nil {
+		return nil
+	}
+
+	return c.conn.Close(ctx)
+}
+
+func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
+	if err := c.validate(); err != nil {
 		return 0, err
 	}
 
-	return int64(resp.NetworkState.MaxBlockHeight.PendingMaxBlockHeight), nil
+	height, err := c.queries.GetLatestBlockHeight(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("query latest block height: %w", err)
+	}
+
+	return height, nil
 }
 
 func (c *MinaClient) FetchActions(ctx context.Context, start, end int) ([]actions.Action, error) {
-
 	if start > end {
 		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidBlockRange, "start is bigger than end")
-
 	}
 
-	resp, err := MinaArchiveActions(
-		ctx,
-		c.client,
-		types.ContractAddress,
-		start,
-		end,
-		start,
-		end+1,
-		end-start+1,
-	)
-	if err != nil {
+	if err := c.validate(); err != nil {
 		return nil, err
 	}
 
-	feePayerByHash := make(map[string]string)
-	for _, block := range resp.Blocks {
-		for _, command := range block.Transactions.ZkappCommands {
-			feePayerByHash[command.Hash] = command.FeePayer
-		}
+	rows, err := c.queries.ListActionRows(ctx, sqlcdb.ListActionRowsParams{
+		ContractAddress:    types.ContractAddress,
+		StartHeight:        int64(start),
+		EndHeightExclusive: int64(end + 1),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query archive actions: %w", err)
 	}
 
-	actions := make([]actions.Action, 0)
-	for _, group := range resp.Actions {
-		for _, raw := range group.ActionData {
-			feePayer, ok := feePayerByHash[raw.TransactionInfo.Hash]
-			if !ok {
-				return nil, cosmosErrors.Wrap(apperrors.ErrMissingFeePayer, raw.TransactionInfo.Hash)
-			}
-
-			action, err := actionFromRawData((group.BlockInfo.Height), feePayer, raw.Data)
-			if err != nil {
-				return nil, err
-			}
-			if action == nil {
-				continue
-			}
-
-			actions = append(actions, *action)
+	result := make([]actions.Action, 0)
+	for _, row := range rows {
+		if len(row.Data) == 0 {
+			continue
 		}
+
+		action, err := actionFromRawData(int(row.Height), row.FeePayer, row.Data)
+		if err != nil {
+			return nil, err
+		}
+		if action == nil {
+			continue
+		}
+
+		result = append(result, *action)
 	}
 
-	return actions, nil
+	return result, nil
+}
+
+func (c *MinaClient) validate() error {
+	if c == nil || c.conn == nil || c.queries == nil {
+		return fmt.Errorf("archive db connection is not initialized")
+	}
+
+	if strings.TrimSpace(types.ContractAddress) == "" {
+		return fmt.Errorf("contract address is empty")
+	}
+
+	return nil
 }
 
 func actionFromRawData(blockHeight int, feePayer string, data []string) (*actions.Action, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	actionTypeValue, err := strconv.Atoi(data[actionTypeIndex])
+	if err != nil {
+		return nil, nil
+	}
+
+	switch actions.ActionType(actionTypeValue) {
+	case actions.ActionType_UNSPECIFIED:
+		return nil, nil
+	case actions.ActionType_DEPOSIT, actions.ActionType_WITHDRAW:
+	default:
+		return nil, nil
+	}
 
 	actionType, amount, err := parseActionData(data)
 	if err != nil {
@@ -116,9 +159,8 @@ func actionFromRawData(blockHeight int, feePayer string, data []string) (*action
 }
 
 func parseActionData(data []string) (actions.ActionType, int64, error) {
-
-	if len(data) < minimumActionFields {
-		return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "missing fields")
+	if len(data) == 0 {
+		return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "missing action type")
 	}
 
 	actionTypeValue, err := strconv.Atoi(data[actionTypeIndex])
@@ -131,6 +173,9 @@ func parseActionData(data []string) (actions.ActionType, int64, error) {
 		return actions.ActionType_UNSPECIFIED, 0, nil
 
 	case int(actions.ActionType_DEPOSIT), int(actions.ActionType_WITHDRAW):
+		if len(data) < minimumActionFields {
+			return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "missing fields")
+		}
 
 		amount, err := strconv.ParseInt(data[actionAmountIndex], 10, 64)
 		if err != nil {
@@ -145,5 +190,12 @@ func parseActionData(data []string) (actions.ActionType, int64, error) {
 	default:
 		return 0, 0, apperrors.ErrInvalidActionType
 	}
+}
 
+func readPostgresURI() string {
+	if value := strings.TrimSpace(os.Getenv("POSTGRES_URI")); value != "" {
+		return value
+	}
+
+	return strings.TrimSpace(os.Getenv("ARCHIVE_DATABASE_URL"))
 }

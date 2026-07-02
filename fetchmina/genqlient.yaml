@@ -1,7 +1,0 @@
-
-schema:
-  - schema.graphql
-operations:
-  - archive.graphql
-generated: generated.go
-package: fetchmina
