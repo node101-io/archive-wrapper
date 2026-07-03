@@ -1,36 +1,28 @@
 package indexer
 
 import (
-	"sort"
-
 	actions "github.com/node101-io/archive-wrapper/actions"
+	"github.com/node101-io/archive-wrapper/apperrors"
 )
 
-// Groups actions by block height and creates a DbRecord for each block height with its corresponding actions.
-func IndexActions(items []actions.Action) []actions.DbRecord {
-	m := make(map[int64][]*actions.Action)
+// Creates a DbRecord for the block height with its corresponding actions.
+func IndexActions(items []actions.Action, height int64) (actions.DbRecord, error) {
 
-	for _, act := range items {
-		m[act.BlockHeight] = append(m[act.BlockHeight], &act)
+	if len(items) == 0 {
+		return actions.DbRecord{}, nil
 	}
 
-	heights := make([]int64, 0, len(m))
-	for height := range m {
-		heights = append(heights, height)
-	}
+	var actionList []*actions.Action
 
-	sort.Slice(heights, func(i, j int) bool {
-		return heights[i] < heights[j]
-	})
-
-	records := make([]actions.DbRecord, 0, len(m))
-	for _, height := range heights {
-		record := actions.DbRecord{
-			Key:     height,
-			Actions: m[height],
+	for _, item := range items {
+		if item.BlockHeight != height {
+			return actions.DbRecord{}, apperrors.ErrInvalidBlockHeight
 		}
-		records = append(records, record)
+		actionList = append(actionList, &item)
 	}
 
-	return records
+	return actions.DbRecord{
+		Key:     height,
+		Actions: actionList,
+	}, nil
 }

@@ -30,4 +30,6 @@ var (
 	ErrInvalidRequest = errors.New("invalid query request")
 
 	ErrInvalidLenght = errors.New("invalid lenght")
+
+	ErrNilConnection = errors.New("nil connection")
 )

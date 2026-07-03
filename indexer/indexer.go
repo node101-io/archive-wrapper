@@ -2,28 +2,40 @@ package indexer
 
 import (
 	"context"
-	"time"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/node101-io/archive-wrapper/database"
 	fetchmina "github.com/node101-io/archive-wrapper/fetchmina"
 )
 
 type Indexer struct {
-	client                 *fetchmina.MinaClient
-	db                     *database.DbManager
-	lastIndexedBlockHeight int64
-	blockBatchSize         int
-	interval               time.Duration
+	conn           *pgx.Conn
+	client         *fetchmina.MinaClient
+	db             *database.DbManager
+	blockBatchSize int64
+}
+
+type BlockNotification struct {
+	Height int64 `json:"height"`
 }
 
 func NewIndexer(
+	conn *pgx.Conn,
 	client *fetchmina.MinaClient,
 	db *database.DbManager,
 	startBlockHeight int64,
-	blockBatchSize int,
-	interval time.Duration,
+	blockBatchSize int64,
+	ctx context.Context,
 ) (*Indexer, error) {
+
+	if conn == nil {
+		return nil, apperrors.ErrNilConnection
+	}
 
 	if client == nil {
 		return nil, apperrors.ErrNilMinaClient
@@ -41,16 +53,13 @@ func NewIndexer(
 		return nil, apperrors.ErrInvalidBlockRange
 	}
 
-	if interval <= 0 {
-		return nil, apperrors.ErrInvalidBlockRange
-	}
-
 	var startingBlockHeight int64
 
 	exists, err := db.HasBlockHeight()
 	if err != nil {
 		return nil, err
 	}
+
 	if exists {
 		startingBlockHeight, err = db.GetBlockHeight()
 		if err != nil {
@@ -60,70 +69,100 @@ func NewIndexer(
 		startingBlockHeight = startBlockHeight - 1
 	}
 
+	minaBlockHeight, err := client.GetMinaBlockHeight(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// This loop is for catching up with Mina.
+	// Will be useful for when for-some-reason wrapper is restarted.
+	// This loop will catch up with the actions sent to contract when the wrapper wasn't working
+
+	for i := startingBlockHeight + 1; i <= minaBlockHeight-blockBatchSize; i++ {
+		actions, err := client.FetchActions(ctx, int(i))
+		if err != nil {
+			return nil, err
+		}
+
+		if len(actions) == 0 {
+			if err := db.InsertBlockHeight(i); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		record, err := IndexActions(actions, i)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := db.Insert(record); err != nil {
+			return nil, err
+		}
+
+		if err := db.InsertBlockHeight(i); err != nil {
+			return nil, err
+		}
+	}
+
 	return &Indexer{
-		client:                 client,
-		db:                     db,
-		lastIndexedBlockHeight: startingBlockHeight,
-		blockBatchSize:         blockBatchSize,
-		interval:               interval,
+		client:         client,
+		conn:           conn,
+		db:             db,
+		blockBatchSize: blockBatchSize,
 	}, nil
 }
 
 func (indexer *Indexer) Run(ctx context.Context) error {
 
-	if err := indexer.indexAvailableBlocks(ctx); err != nil {
-		return err
+	defer indexer.conn.Close(ctx)
+
+	_, err := indexer.conn.Exec(ctx, "LISTEN blocks_inserted")
+	if err != nil {
+		return fmt.Errorf("listen blocks_inserted: %w", err)
 	}
 
-	ticker := time.NewTicker(indexer.interval)
-	defer ticker.Stop()
-
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-
-		case <-ticker.C:
-			if err := indexer.indexAvailableBlocks(ctx); err != nil {
-				return err
+		notification, err := indexer.conn.WaitForNotification(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return ctx.Err()
 			}
+			return fmt.Errorf("wait for notification: %w", err)
+		}
+
+		var msg BlockNotification
+		if err := json.Unmarshal([]byte(notification.Payload), &msg); err != nil {
+			log.Printf("invalid notification payload %q: %v", notification.Payload, err)
+			continue
+		}
+
+		lastCanonicalBlock := msg.Height - indexer.blockBatchSize
+		if err := indexer.indexAvailableBlocks(ctx, lastCanonicalBlock); err != nil {
+			return err
 		}
 	}
 }
 
-func (indexer *Indexer) indexAvailableBlocks(ctx context.Context) error {
+func (indexer *Indexer) indexAvailableBlocks(ctx context.Context, height int64) error {
 
-	latestBlockHeight, err := indexer.client.GetMinaBlockHeight(ctx)
+	actions, err := indexer.client.FetchActions(ctx, int(height))
 	if err != nil {
 		return err
 	}
 
-	nextBlockHeight := indexer.lastIndexedBlockHeight + 1
-	if nextBlockHeight > latestBlockHeight {
-		return nil
+	if len(actions) == 0 {
+		return indexer.db.InsertBlockHeight(height)
 	}
 
-	endBlockHeight := nextBlockHeight + int64(indexer.blockBatchSize) - 1
-	if endBlockHeight > latestBlockHeight {
-		endBlockHeight = latestBlockHeight
-	}
-
-	actions, err := indexer.client.FetchActions(ctx, int(nextBlockHeight), int(endBlockHeight))
+	record, err := IndexActions(actions, height)
 	if err != nil {
 		return err
 	}
 
-	records := IndexActions(actions)
-	for _, record := range records {
-		if err := indexer.db.Insert(record); err != nil {
-			return err
-		}
-	}
-
-	if err := indexer.db.InsertBlockHeight(endBlockHeight); err != nil {
+	if err := indexer.db.Insert(record); err != nil {
 		return err
 	}
 
-	indexer.lastIndexedBlockHeight = endBlockHeight
-	return nil
+	return indexer.db.InsertBlockHeight(height)
 }

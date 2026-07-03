@@ -59,8 +59,7 @@ action_rows AS (
     WITH ORDINALITY AS action_field(field_id, field_index) ON true
   LEFT JOIN zkapp_field field ON field.id = action_field.field_id
   WHERE account_pk.value = $1::text
-    AND b.height >= $2::bigint
-    AND b.height < $3::bigint
+    AND b.height = $2::bigint
   GROUP BY
     b.id,
     b.height,
@@ -97,9 +96,8 @@ ORDER BY height, fee_payer
 `
 
 type ListActionRowsParams struct {
-	ContractAddress    string
-	StartHeight        int64
-	EndHeightExclusive int64
+	ContractAddress string
+	Height          int64
 }
 
 type ListActionRowsRow struct {
@@ -109,7 +107,7 @@ type ListActionRowsRow struct {
 }
 
 func (q *Queries) ListActionRows(ctx context.Context, arg ListActionRowsParams) ([]ListActionRowsRow, error) {
-	rows, err := q.db.Query(ctx, listActionRows, arg.ContractAddress, arg.StartHeight, arg.EndHeightExclusive)
+	rows, err := q.db.Query(ctx, listActionRows, arg.ContractAddress, arg.Height)
 	if err != nil {
 		return nil, err
 	}

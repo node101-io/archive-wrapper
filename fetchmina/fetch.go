@@ -23,12 +23,11 @@ const (
 )
 
 type MinaClient struct {
-	conn            *pgx.Conn
 	queries         *sqlcdb.Queries
 	contractAddress string
 }
 
-func NewMinaClient(postgresURI string, ctx context.Context) (*MinaClient, error) {
+func NewMinaClient(postgresURI, contractAddress string, ctx context.Context) (*MinaClient, error) {
 	if strings.TrimSpace(postgresURI) == "" {
 		postgresURI = readPostgresURI()
 	}
@@ -43,17 +42,9 @@ func NewMinaClient(postgresURI string, ctx context.Context) (*MinaClient, error)
 	}
 
 	return &MinaClient{
-		conn:    conn,
-		queries: sqlcdb.New(conn),
+		queries:         sqlcdb.New(conn),
+		contractAddress: contractAddress,
 	}, nil
-}
-
-func (c *MinaClient) Close(ctx context.Context) error {
-	if c == nil || c.conn == nil {
-		return nil
-	}
-
-	return c.conn.Close(ctx)
 }
 
 func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
@@ -69,9 +60,9 @@ func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 	return height, nil
 }
 
-func (c *MinaClient) FetchActions(ctx context.Context, start, end int) ([]actions.Action, error) {
-	if start > end {
-		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidBlockRange, "start is bigger than end")
+func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int) ([]actions.Action, error) {
+	if blockHeight <= 0 {
+		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidBlockHeight, "block height must be greater than 0")
 	}
 
 	if err := c.validate(); err != nil {
@@ -79,9 +70,8 @@ func (c *MinaClient) FetchActions(ctx context.Context, start, end int) ([]action
 	}
 
 	rows, err := c.queries.ListActionRows(ctx, sqlcdb.ListActionRowsParams{
-		ContractAddress:    c.contractAddress,
-		StartHeight:        int64(start),
-		EndHeightExclusive: int64(end + 1),
+		ContractAddress: c.contractAddress,
+		Height:          int64(blockHeight),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query archive actions: %w", err)
@@ -108,7 +98,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, start, end int) ([]action
 }
 
 func (c *MinaClient) validate() error {
-	if c == nil || c.conn == nil || c.queries == nil {
+	if c == nil || c.queries == nil {
 		return fmt.Errorf("archive db connection is not initialized")
 	}
 

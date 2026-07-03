@@ -40,8 +40,7 @@ action_rows AS (
     WITH ORDINALITY AS action_field(field_id, field_index) ON true
   LEFT JOIN zkapp_field field ON field.id = action_field.field_id
   WHERE account_pk.value = sqlc.arg(contract_address)::text
-    AND b.height >= sqlc.arg(start_height)::bigint
-    AND b.height < sqlc.arg(end_height_exclusive)::bigint
+    AND b.height = sqlc.arg(height)::bigint
   GROUP BY
     b.id,
     b.height,
