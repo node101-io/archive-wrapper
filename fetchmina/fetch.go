@@ -12,8 +12,6 @@ import (
 	"github.com/node101-io/archive-wrapper/apperrors"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
 	"github.com/node101-io/mina-signer-go/address"
-
-	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -27,22 +25,9 @@ type MinaClient struct {
 	contractAddress string
 }
 
-func NewMinaClient(postgresURI, contractAddress string, ctx context.Context) (*MinaClient, error) {
-	if strings.TrimSpace(postgresURI) == "" {
-		postgresURI = readPostgresURI()
-	}
-
-	if strings.TrimSpace(postgresURI) == "" {
-		return nil, fmt.Errorf("postgres uri is empty")
-	}
-
-	conn, err := pgx.Connect(ctx, postgresURI)
-	if err != nil {
-		return nil, fmt.Errorf("connect to archive db: %w", err)
-	}
-
+func NewMinaClient(contractAddress string, queries *sqlcdb.Queries) (*MinaClient, error) {
 	return &MinaClient{
-		queries:         sqlcdb.New(conn),
+		queries:         queries,
 		contractAddress: contractAddress,
 	}, nil
 }
