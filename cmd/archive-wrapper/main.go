@@ -2,22 +2,24 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
-
-	"github.com/node101-io/archive-wrapper/config"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
 
-	ctx := context.Background()
+	// allows to close the wrapper via CTRL + C
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	cfg, err := config.Load()
-	if err != nil {
+	// Allows graceful shutdown with cli command
+	ctx, cancel := context.WithCancel(ctx)
+
+	if err := run(os.Args[1:], ctx, cancel); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
 	}
 
-	if err := run(os.Args[1:], ctx, cfg); err != nil {
-		log.Fatal(err)
-	}
 }

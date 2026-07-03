@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -16,7 +17,11 @@ import (
 	"github.com/node101-io/archive-wrapper/indexer"
 )
 
-func run(args []string, ctx context.Context, cfg config.Config) error {
+const sockPath = "/tmp/archive-wrapper.sock"
+const network = "unix"
+
+func run(args []string, ctx context.Context,
+	cancel context.CancelFunc) error {
 	if len(args) == 0 {
 		return fmt.Errorf("missing command\n\n%s", usage())
 	}
@@ -40,11 +45,16 @@ func run(args []string, ctx context.Context, cfg config.Config) error {
 			return fmt.Errorf("--start-block-height is required and must be greater than 0")
 		}
 
-		return runStart(ctx, cfg, *startBlockHeight)
+		// stop command should not need to depend on config.Load's success. Hence, i moved it here.
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+
+		return runStart(ctx, cfg, *startBlockHeight, cancel)
 
 	case "stop":
-		runStop()
-		return nil
+		return runStop()
 	case "help", "-h", "--help":
 		fmt.Print(usage())
 		return nil
@@ -53,7 +63,24 @@ func run(args []string, ctx context.Context, cfg config.Config) error {
 	}
 }
 
-func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64) error {
+func runStart(ctx context.Context, cfg config.Config,
+	startBlockHeight int64, cancel context.CancelFunc) error {
+
+	os.Remove(sockPath)
+
+	ln, err := net.Listen(network, sockPath)
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+
+	go func() {
+		c, err := ln.Accept()
+		if err == nil {
+			c.Close()
+		}
+		cancel()
+	}()
 
 	postgreUri := os.Getenv("POSTGRES_URI")
 
@@ -61,6 +88,7 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64) er
 	if err != nil {
 		return err
 	}
+	defer conn.Close(ctx)
 
 	client, err := fetchmina.NewMinaClient(cfg.ContractAddress, sqlcdb.New(conn))
 	if err != nil {
@@ -71,6 +99,7 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64) er
 	if err != nil {
 		return err
 	}
+	defer db.Close()
 
 	indexer, err := indexer.NewIndexer(conn, client, db, startBlockHeight, cfg.ConfirmationDepth, ctx)
 	if err != nil {
@@ -80,8 +109,15 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64) er
 	return indexer.Run(ctx)
 }
 
-func runStop() {
+func runStop() error {
 
+	c, err := net.Dial(network, sockPath)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	return nil
 }
 
 func usage() string {
