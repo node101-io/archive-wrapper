@@ -14,10 +14,10 @@ import (
 )
 
 type Indexer struct {
-	conn           *pgx.Conn
-	client         *fetchmina.MinaClient
-	db             *database.DbManager
-	blockBatchSize int64
+	conn              *pgx.Conn
+	client            *fetchmina.MinaClient
+	db                *database.DbManager
+	confirmationDepth int64
 }
 
 type BlockNotification struct {
@@ -29,7 +29,7 @@ func NewIndexer(
 	client *fetchmina.MinaClient,
 	db *database.DbManager,
 	startBlockHeight int64,
-	blockBatchSize int64,
+	confirmationDepth int64,
 	ctx context.Context,
 ) (*Indexer, error) {
 
@@ -49,7 +49,7 @@ func NewIndexer(
 		return nil, apperrors.ErrBlockHeightMustBeBiggerThanZero
 	}
 
-	if blockBatchSize <= 0 {
+	if confirmationDepth <= 0 {
 		return nil, apperrors.ErrInvalidBlockRange
 	}
 
@@ -78,7 +78,7 @@ func NewIndexer(
 	// Will be useful for when for-some-reason wrapper is restarted.
 	// This loop will catch up with the actions sent to contract when the wrapper wasn't working
 
-	for i := startingBlockHeight + 1; i <= minaBlockHeight-blockBatchSize; i++ {
+	for i := startingBlockHeight + 1; i <= minaBlockHeight-confirmationDepth; i++ {
 		actions, err := client.FetchActions(ctx, int(i))
 		if err != nil {
 			return nil, err
@@ -106,10 +106,10 @@ func NewIndexer(
 	}
 
 	return &Indexer{
-		client:         client,
-		conn:           conn,
-		db:             db,
-		blockBatchSize: blockBatchSize,
+		client:            client,
+		conn:              conn,
+		db:                db,
+		confirmationDepth: confirmationDepth,
 	}, nil
 }
 
@@ -137,7 +137,7 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 			continue
 		}
 
-		lastCanonicalBlock := msg.Height - indexer.blockBatchSize
+		lastCanonicalBlock := msg.Height - indexer.confirmationDepth
 		if err := indexer.indexAvailableBlocks(ctx, lastCanonicalBlock); err != nil {
 			return err
 		}

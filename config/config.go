@@ -13,6 +13,7 @@ type Config struct {
 	ContractAddress        string `mapstructure:"contract_address"`
 	BlockHeightDatabaseKey string `mapstructure:"block_height_database_key"`
 	DBPath                 string `mapstructure:"db_path"`
+	ConfirmationDepth      int64  `mapstructure:"confirmation_depth"`
 }
 
 func Load() (Config, error) {
@@ -41,6 +42,9 @@ func Load() (Config, error) {
 	}
 	if cfg.DBPath == "" {
 		return Config{}, fmt.Errorf("db_path is required")
+	}
+	if cfg.ConfirmationDepth <= 0 {
+		return Config{}, fmt.Errorf("confirmation_depth is required and must be greater than 0")
 	}
 
 	return cfg, nil
