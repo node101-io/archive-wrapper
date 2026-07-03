@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-const configFile = "../config.yaml"
+const configFile = "config.yaml"
 
 type Config struct {
 	ContractAddress        string `mapstructure:"contract_address"`

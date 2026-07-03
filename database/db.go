@@ -2,7 +2,6 @@ package database
 
 import (
 	"github.com/node101-io/archive-wrapper/apperrors"
-	"github.com/node101-io/archive-wrapper/config"
 
 	"fmt"
 
@@ -17,21 +16,16 @@ type DbManager struct {
 	blockHeightDatabaseKey string
 }
 
-func NewDbManager(path string) (*DbManager, error) {
+func NewDbManager(path, blockHeightDatabaseKey string) (*DbManager, error) {
 
 	db, err := leveldb.OpenFile(path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open leveldb: %w", err)
 	}
 
-	config, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
-
 	return &DbManager{
 		db:                     db,
-		blockHeightDatabaseKey: config.BlockHeightDatabaseKey,
+		blockHeightDatabaseKey: blockHeightDatabaseKey,
 	}, nil
 }
 

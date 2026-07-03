@@ -8,9 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const blockHeightDatabaseKey = "db-key"
+
 func TestDbManager_InsertThenGet(t *testing.T) {
 
-	manager, err := NewDbManager(t.TempDir())
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey)
 
 	require.NoError(t, err)
 	require.NotNil(t, manager)
@@ -49,7 +51,7 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 
 func TestDbManagerInsertBlockHeight(t *testing.T) {
 
-	manager, err := NewDbManager(t.TempDir())
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey)
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 

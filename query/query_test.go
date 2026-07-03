@@ -10,9 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const blockHeightDatabaseKey = "db-key"
+
 func TestQuery(t *testing.T) {
 
-	manager, err := database.NewDbManager(t.TempDir())
+	manager, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey)
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 

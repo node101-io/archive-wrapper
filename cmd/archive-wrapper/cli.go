@@ -78,8 +78,8 @@ func runStart(ctx context.Context, cfg config.Config,
 		c, err := ln.Accept()
 		if err == nil {
 			c.Close()
+			cancel()
 		}
-		cancel()
 	}()
 
 	postgreUri := os.Getenv("POSTGRES_URI")
@@ -88,14 +88,13 @@ func runStart(ctx context.Context, cfg config.Config,
 	if err != nil {
 		return err
 	}
-	defer conn.Close(ctx)
 
 	client, err := fetchmina.NewMinaClient(cfg.ContractAddress, sqlcdb.New(conn))
 	if err != nil {
 		return err
 	}
 
-	db, err := database.NewDbManager(cfg.DBPath)
+	db, err := database.NewDbManager(cfg.DBPath, cfg.BlockHeightDatabaseKey)
 	if err != nil {
 		return err
 	}

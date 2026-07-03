@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/node101-io/archive-wrapper/apperrors"
@@ -23,6 +23,11 @@ type Indexer struct {
 type BlockNotification struct {
 	Height int64 `json:"height"`
 }
+
+const (
+	maxRetries = 3
+	retryDelay = 2 * time.Second
+)
 
 func NewIndexer(
 	conn *pgx.Conn,
@@ -79,28 +84,31 @@ func NewIndexer(
 	// This loop will catch up with the actions sent to contract when the wrapper wasn't working
 
 	for i := startingBlockHeight + 1; i <= minaBlockHeight-confirmationDepth; i++ {
-		actions, err := client.FetchActions(ctx, int(i))
-		if err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		if len(actions) == 0 {
-			if err := db.InsertBlockHeight(i); err != nil {
-				return nil, err
+		if err := withRetry(ctx, func() error {
+			actions, err := client.FetchActions(ctx, int(i))
+			if err != nil {
+				return err
 			}
-			continue
-		}
 
-		record, err := IndexActions(actions, i)
-		if err != nil {
-			return nil, err
-		}
+			if len(actions) == 0 {
+				return db.InsertBlockHeight(i)
+			}
 
-		if err := db.Insert(record); err != nil {
-			return nil, err
-		}
+			record, err := IndexActions(actions, i)
+			if err != nil {
+				return err
+			}
 
-		if err := db.InsertBlockHeight(i); err != nil {
+			if err := db.Insert(record); err != nil {
+				return err
+			}
+
+			return db.InsertBlockHeight(i)
+		}); err != nil {
 			return nil, err
 		}
 	}
@@ -126,22 +134,52 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 		notification, err := indexer.conn.WaitForNotification(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
-				return ctx.Err()
+				return nil
 			}
 			return fmt.Errorf("wait for notification: %w", err)
 		}
 
 		var msg BlockNotification
 		if err := json.Unmarshal([]byte(notification.Payload), &msg); err != nil {
-			log.Printf("invalid notification payload %q: %v", notification.Payload, err)
-			continue
+			return err
 		}
 
 		lastCanonicalBlock := msg.Height - indexer.confirmationDepth
-		if err := indexer.indexAvailableBlocks(ctx, lastCanonicalBlock); err != nil {
+		if err := withRetry(ctx, func() error {
+
+			// Only the indexer is retriable because
+			// WaitForNotification and json unmarshall failing suggests
+			// that there is a problem with archive node's DB
+			// (either an invalid row is inserted or something wrong with notificataion)
+			return indexer.indexAvailableBlocks(ctx, lastCanonicalBlock)
+		}); err != nil {
 			return err
 		}
 	}
+}
+
+// withRetry retries fn up to maxRetries times with a fixed delay between
+// attempts. It stops early if ctx is cancelled.
+func withRetry(ctx context.Context, fn func() error) error {
+	var err error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+
+		if attempt == maxRetries {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(retryDelay):
+		}
+	}
+
+	return err
 }
 
 func (indexer *Indexer) indexAvailableBlocks(ctx context.Context, height int64) error {
