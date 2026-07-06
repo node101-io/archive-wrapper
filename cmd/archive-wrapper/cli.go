@@ -8,12 +8,11 @@ import (
 	"os"
 	"strings"
 
-	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
-
 	"github.com/jackc/pgx/v5"
 	"github.com/node101-io/archive-wrapper/config"
 	"github.com/node101-io/archive-wrapper/database"
 	"github.com/node101-io/archive-wrapper/fetchmina"
+	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
 	"github.com/node101-io/archive-wrapper/indexer"
 )
 
@@ -88,6 +87,8 @@ func runStart(ctx context.Context, cfg config.Config,
 	if err != nil {
 		return err
 	}
+
+	defer conn.Close(ctx)
 
 	client, err := fetchmina.NewMinaClient(cfg.ContractAddress, sqlcdb.New(conn))
 	if err != nil {

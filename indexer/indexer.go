@@ -126,7 +126,6 @@ func (indexer *Indexer) syncTo(
 }
 
 func (indexer *Indexer) Run(ctx context.Context) error {
-	defer indexer.conn.Close(ctx)
 
 	// 1. Önce notification aboneliğini başlat.
 	if _, err := indexer.conn.Exec(
