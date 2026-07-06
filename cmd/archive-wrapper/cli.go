@@ -15,6 +15,9 @@ import (
 	"github.com/node101-io/archive-wrapper/fetchmina"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
 	"github.com/node101-io/archive-wrapper/indexer"
+	"github.com/node101-io/archive-wrapper/query"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
 )
 
 const sockPath = "/tmp/archive-wrapper.sock"
@@ -96,10 +99,10 @@ func runStart(ctx context.Context, cfg config.Config,
 	}
 	defer queryPool.Close()
 
-	client, err := fetchmina.NewMinaClient(cfg.ContractAddress, sqlcdb.New(notificationConn))
-	if err != nil {
-		return err
-	}
+	client, err := fetchmina.NewMinaClient(
+		cfg.ContractAddress,
+		sqlcdb.New(queryPool),
+	)
 
 	db, err := database.NewDbManager(cfg.DBPath, cfg.BlockHeightDatabaseKey)
 	if err != nil {
@@ -112,7 +115,32 @@ func runStart(ctx context.Context, cfg config.Config,
 		return err
 	}
 
-	return indexer.Run(ctx)
+	grpcListener, err := net.Listen("tcp", cfg.GRPCListenAddress)
+	if err != nil {
+		return fmt.Errorf("listen gRPC: %w", err)
+	}
+	defer grpcListener.Close()
+
+	grpcServer := grpc.NewServer()
+	query.RegisterQueryServer(grpcServer, query.NewQuery(db))
+
+	group, runCtx := errgroup.WithContext(ctx)
+
+	group.Go(func() error {
+		return indexer.Run(runCtx)
+	})
+
+	group.Go(func() error {
+		return grpcServer.Serve(grpcListener)
+	})
+
+	group.Go(func() error {
+		<-runCtx.Done()
+		grpcServer.GracefulStop()
+		return nil
+	})
+
+	return group.Wait()
 }
 
 func runStop() error {

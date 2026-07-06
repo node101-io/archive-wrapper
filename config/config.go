@@ -14,6 +14,7 @@ type Config struct {
 	BlockHeightDatabaseKey string `mapstructure:"block_height_database_key"`
 	DBPath                 string `mapstructure:"db_path"`
 	ConfirmationDepth      int64  `mapstructure:"confirmation_depth"`
+	GRPCListenAddress      string `mapstructure:"grpc_listen_address"`
 }
 
 func Load() (Config, error) {
@@ -33,7 +34,11 @@ func Load() (Config, error) {
 	cfg.ContractAddress = strings.TrimSpace(cfg.ContractAddress)
 	cfg.BlockHeightDatabaseKey = strings.TrimSpace(cfg.BlockHeightDatabaseKey)
 	cfg.DBPath = strings.TrimSpace(cfg.DBPath)
+	cfg.GRPCListenAddress = strings.TrimSpace(cfg.GRPCListenAddress)
 
+	if cfg.GRPCListenAddress == "" {
+		return Config{}, fmt.Errorf("grpc_listen_address is required")
+	}
 	if cfg.ContractAddress == "" {
 		return Config{}, fmt.Errorf("contract_address is required")
 	}

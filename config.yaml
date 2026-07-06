@@ -2,3 +2,4 @@ contract_address: "B62qjTpSX2R4fyqJrC9pzvm5PSZb5GMaYBXh8di3TBn6pPC9XXYFC9k"
 block_height_database_key: "archive-wrapper"
 db_path: "./data/archive-wrapper"
 confirmation_depth: 32
+grpc_listen_address: "127.0.0.1:9090"
