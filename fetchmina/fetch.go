@@ -3,7 +3,6 @@ package fetchmina
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -26,6 +25,16 @@ type MinaClient struct {
 }
 
 func NewMinaClient(contractAddress string, queries *sqlcdb.Queries) (*MinaClient, error) {
+
+	if queries == nil {
+		return nil, apperrors.ErrNilQueries
+	}
+
+	contractAddress = strings.TrimSpace(contractAddress)
+	if contractAddress == "" {
+		return nil, apperrors.ErrInvalidContractAddress
+	}
+
 	return &MinaClient{
 		queries:         queries,
 		contractAddress: contractAddress,
@@ -84,11 +93,11 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int) ([]actio
 
 func (c *MinaClient) validate() error {
 	if c == nil || c.queries == nil {
-		return fmt.Errorf("archive db connection is not initialized")
+		return apperrors.ErrNilMinaClient
 	}
 
 	if strings.TrimSpace(c.contractAddress) == "" {
-		return fmt.Errorf("contract address is empty")
+		return apperrors.ErrInvalidContractAddress
 	}
 
 	return nil
@@ -165,12 +174,4 @@ func parseActionData(data []string) (actions.ActionType, int64, error) {
 	default:
 		return 0, 0, apperrors.ErrInvalidActionType
 	}
-}
-
-func readPostgresURI() string {
-	if value := strings.TrimSpace(os.Getenv("POSTGRES_URI")); value != "" {
-		return value
-	}
-
-	return strings.TrimSpace(os.Getenv("ARCHIVE_DATABASE_URL"))
 }

@@ -31,5 +31,7 @@ var (
 
 	ErrInvalidLenght = errors.New("invalid lenght")
 
-	ErrNilConnection = errors.New("nil connection")
+	ErrNilConnection          = errors.New("nil connection")
+	ErrInvalidContractAddress = errors.New("invalid contract address")
+	ErrNilQueries             = errors.New("nil queries")
 )
