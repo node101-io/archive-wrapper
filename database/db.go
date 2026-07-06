@@ -1,6 +1,9 @@
 package database
 
 import (
+	"errors"
+	"sync"
+
 	"github.com/node101-io/archive-wrapper/apperrors"
 
 	"fmt"
@@ -14,6 +17,7 @@ import (
 type DbManager struct {
 	db                     *leveldb.DB
 	blockHeightDatabaseKey string
+	blockHeightMu          sync.Mutex
 }
 
 func NewDbManager(path, blockHeightDatabaseKey string) (*DbManager, error) {
@@ -104,7 +108,41 @@ func (manager *DbManager) InsertBlockHeight(height int64) error {
 		return apperrors.ErrBlockHeightMustBeBiggerThanZero
 	}
 
-	return manager.db.Put([]byte(manager.blockHeightDatabaseKey), encodeBlockHeight(height), nil)
+	manager.blockHeightMu.Lock()
+	defer manager.blockHeightMu.Unlock()
+
+	key := []byte(manager.blockHeightDatabaseKey)
+
+	record, err := manager.db.Get(key, nil)
+	switch {
+	case err == nil:
+		currentHeight, err := decodeBlockHeight(record)
+		if err != nil {
+			return err
+		}
+
+		if height < currentHeight {
+			return fmt.Errorf(
+				"%w: current=%d requested=%d",
+				apperrors.ErrBlockHeightRegression,
+				currentHeight,
+				height,
+			)
+		}
+
+		// Duplicate update idempotent olsun.
+		if height == currentHeight {
+			return nil
+		}
+
+	case errors.Is(err, leveldb.ErrNotFound):
+		// İlk cursor yazımı.
+
+	default:
+		return fmt.Errorf("get block height cursor: %w", err)
+	}
+
+	return manager.db.Put(key, encodeBlockHeight(height), nil)
 }
 
 func (manager *DbManager) HasBlockHeight() (bool, error) {

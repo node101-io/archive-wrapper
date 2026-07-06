@@ -34,4 +34,7 @@ var (
 	ErrNilConnection          = errors.New("nil connection")
 	ErrInvalidContractAddress = errors.New("invalid contract address")
 	ErrNilQueries             = errors.New("nil queries")
+
+	ErrNilIndexer            = errors.New("nil indexer")
+	ErrBlockHeightRegression = errors.New("block height cursor cannot move backwards")
 )

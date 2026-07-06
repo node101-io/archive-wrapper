@@ -19,7 +19,6 @@ type Indexer struct {
 	db                *database.DbManager
 	confirmationDepth int64
 	startBlockHeight  int64
-	lastSyncedBlock   int64
 }
 
 type BlockNotification struct {
@@ -66,25 +65,12 @@ func NewIndexer(
 		db:                db,
 		confirmationDepth: confirmationDepth,
 		startBlockHeight:  startBlockHeight,
-		lastSyncedBlock:   0,
 	}, nil
 }
 
 func (indexer *Indexer) Sync(ctx context.Context) error {
-	exists, err := indexer.db.HasBlockHeight()
-	if err != nil {
-		return err
-	}
-
-	if exists {
-		cursor, err := indexer.db.GetBlockHeight()
-		if err != nil {
-			return err
-		}
-
-		indexer.lastSyncedBlock = cursor
-	} else {
-		indexer.lastSyncedBlock = indexer.startBlockHeight - 1
+	if indexer == nil {
+		return apperrors.ErrNilIndexer
 	}
 
 	minaBlockHeight, err := indexer.client.GetMinaBlockHeight(ctx)
@@ -92,34 +78,42 @@ func (indexer *Indexer) Sync(ctx context.Context) error {
 		return err
 	}
 
-	target := minaBlockHeight - indexer.confirmationDepth
-
-	return indexer.syncTo(ctx, target)
+	return indexer.syncTo(
+		ctx,
+		minaBlockHeight-indexer.confirmationDepth,
+	)
 }
 
 func (indexer *Indexer) syncTo(
 	ctx context.Context,
 	target int64,
 ) error {
-	if target <= indexer.lastSyncedBlock {
+	cursor := indexer.startBlockHeight - 1
+
+	exists, err := indexer.db.HasBlockHeight()
+	if err != nil {
+		return err
+	}
+
+	if exists {
+		cursor, err = indexer.db.GetBlockHeight()
+		if err != nil {
+			return err
+		}
+	}
+
+	if target <= cursor {
 		return nil
 	}
 
-	for indexer.lastSyncedBlock < target {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		height := indexer.lastSyncedBlock + 1
+	for height := cursor + 1; height <= target; height++ {
+		height := height
 
 		if err := withRetry(ctx, func() error {
 			return indexer.indexAvailableBlocks(ctx, height)
 		}); err != nil {
 			return fmt.Errorf("index block %d: %w", height, err)
 		}
-
-		// Persist işlemi başarılı olduktan sonra memory cursor ilerler.
-		indexer.lastSyncedBlock = height
 	}
 
 	return nil
