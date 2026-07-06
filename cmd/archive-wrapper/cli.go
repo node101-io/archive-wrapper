@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/node101-io/archive-wrapper/config"
 	"github.com/node101-io/archive-wrapper/database"
 	"github.com/node101-io/archive-wrapper/fetchmina"
@@ -83,14 +84,19 @@ func runStart(ctx context.Context, cfg config.Config,
 
 	postgreUri := os.Getenv("POSTGRES_URI")
 
-	conn, err := pgx.Connect(ctx, postgreUri)
+	notificationConn, err := pgx.Connect(ctx, postgreUri)
 	if err != nil {
 		return err
 	}
+	defer notificationConn.Close(context.Background())
 
-	defer conn.Close(ctx)
+	queryPool, err := pgxpool.New(ctx, postgreUri)
+	if err != nil {
+		return err
+	}
+	defer queryPool.Close()
 
-	client, err := fetchmina.NewMinaClient(cfg.ContractAddress, sqlcdb.New(conn))
+	client, err := fetchmina.NewMinaClient(cfg.ContractAddress, sqlcdb.New(notificationConn))
 	if err != nil {
 		return err
 	}
@@ -101,7 +107,7 @@ func runStart(ctx context.Context, cfg config.Config,
 	}
 	defer db.Close()
 
-	indexer, err := indexer.NewIndexer(conn, client, db, startBlockHeight, cfg.ConfirmationDepth, ctx)
+	indexer, err := indexer.NewIndexer(notificationConn, client, db, startBlockHeight, cfg.ConfirmationDepth, ctx)
 	if err != nil {
 		return err
 	}
