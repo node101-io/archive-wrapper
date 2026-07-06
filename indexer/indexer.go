@@ -18,6 +18,8 @@ type Indexer struct {
 	client            *fetchmina.MinaClient
 	db                *database.DbManager
 	confirmationDepth int64
+	startBlockHeight  int64
+	lastSyncedBlock   int64
 }
 
 type BlockNotification struct {
@@ -58,78 +60,88 @@ func NewIndexer(
 		return nil, apperrors.ErrInvalidBlockRange
 	}
 
-	var startingBlockHeight int64
-
-	exists, err := db.HasBlockHeight()
-	if err != nil {
-		return nil, err
-	}
-
-	if exists {
-		startingBlockHeight, err = db.GetBlockHeight()
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		startingBlockHeight = startBlockHeight - 1
-	}
-
-	minaBlockHeight, err := client.GetMinaBlockHeight(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// This loop is for catching up with Mina.
-	// Will be useful for when for-some-reason wrapper is restarted.
-	// This loop will catch up with the actions sent to contract when the wrapper wasn't working
-
-	for i := startingBlockHeight + 1; i <= minaBlockHeight-confirmationDepth; i++ {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-
-		if err := withRetry(ctx, func() error {
-			actions, err := client.FetchActions(ctx, int(i))
-			if err != nil {
-				return err
-			}
-
-			if len(actions) == 0 {
-				return db.InsertBlockHeight(i)
-			}
-
-			record, err := IndexActions(actions, i)
-			if err != nil {
-				return err
-			}
-
-			if err := db.Insert(record); err != nil {
-				return err
-			}
-
-			return db.InsertBlockHeight(i)
-		}); err != nil {
-			return nil, err
-		}
-	}
-
 	return &Indexer{
 		client:            client,
 		conn:              conn,
 		db:                db,
 		confirmationDepth: confirmationDepth,
+		startBlockHeight:  startBlockHeight,
+		lastSyncedBlock:   0,
 	}, nil
 }
 
-func (indexer *Indexer) Run(ctx context.Context) error {
+func (indexer *Indexer) Sync(ctx context.Context) error {
+	exists, err := indexer.db.HasBlockHeight()
+	if err != nil {
+		return err
+	}
 
+	if exists {
+		cursor, err := indexer.db.GetBlockHeight()
+		if err != nil {
+			return err
+		}
+
+		indexer.lastSyncedBlock = cursor
+	} else {
+		indexer.lastSyncedBlock = indexer.startBlockHeight - 1
+	}
+
+	minaBlockHeight, err := indexer.client.GetMinaBlockHeight(ctx)
+	if err != nil {
+		return err
+	}
+
+	target := minaBlockHeight - indexer.confirmationDepth
+
+	return indexer.syncTo(ctx, target)
+}
+
+func (indexer *Indexer) syncTo(
+	ctx context.Context,
+	target int64,
+) error {
+	if target <= indexer.lastSyncedBlock {
+		return nil
+	}
+
+	for indexer.lastSyncedBlock < target {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		height := indexer.lastSyncedBlock + 1
+
+		if err := withRetry(ctx, func() error {
+			return indexer.indexAvailableBlocks(ctx, height)
+		}); err != nil {
+			return fmt.Errorf("index block %d: %w", height, err)
+		}
+
+		// Persist işlemi başarılı olduktan sonra memory cursor ilerler.
+		indexer.lastSyncedBlock = height
+	}
+
+	return nil
+}
+
+func (indexer *Indexer) Run(ctx context.Context) error {
 	defer indexer.conn.Close(ctx)
 
-	_, err := indexer.conn.Exec(ctx, "LISTEN blocks_inserted")
-	if err != nil {
+	// 1. Önce notification aboneliğini başlat.
+	if _, err := indexer.conn.Exec(
+		ctx,
+		"LISTEN blocks_inserted",
+	); err != nil {
 		return fmt.Errorf("listen blocks_inserted: %w", err)
 	}
 
+	// 2. Persisted cursor'ı yükle ve mevcut tip'e kadar catch-up yap.
+	if err := indexer.Sync(ctx); err != nil {
+		return fmt.Errorf("initial sync: %w", err)
+	}
+
+	// 3. Yeni notification'ları takip et.
 	for {
 		notification, err := indexer.conn.WaitForNotification(ctx)
 		if err != nil {
@@ -140,19 +152,18 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 		}
 
 		var msg BlockNotification
-		if err := json.Unmarshal([]byte(notification.Payload), &msg); err != nil {
+		if err := json.Unmarshal(
+			[]byte(notification.Payload),
+			&msg,
+		); err != nil {
 			return err
 		}
 
-		lastCanonicalBlock := msg.Height - indexer.confirmationDepth
-		if err := withRetry(ctx, func() error {
+		target := msg.Height - indexer.confirmationDepth
 
-			// Only the indexer is retriable because
-			// WaitForNotification and json unmarshall failing suggests
-			// that there is a problem with archive node's DB
-			// (either an invalid row is inserted or something wrong with notificataion)
-			return indexer.indexAvailableBlocks(ctx, lastCanonicalBlock)
-		}); err != nil {
+		// Eski notification ise no-op.
+		// Arada eksik block varsa tamamını işler.
+		if err := indexer.syncTo(ctx, target); err != nil {
 			return err
 		}
 	}
