@@ -7,8 +7,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-const configFile = "config.yaml"
-
 type Config struct {
 	ContractAddress        string `mapstructure:"contract_address"`
 	BlockHeightDatabaseKey string `mapstructure:"block_height_database_key"`
@@ -17,7 +15,7 @@ type Config struct {
 	GRPCListenAddress      string `mapstructure:"grpc_listen_address"`
 }
 
-func Load() (Config, error) {
+func Load(configFile string) (Config, error) {
 
 	v := viper.New()
 	v.SetConfigFile(configFile)

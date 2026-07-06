@@ -40,6 +40,12 @@ func run(args []string, ctx context.Context,
 			"first block height to start indexing from",
 		)
 
+		configPath := startCmd.String(
+			"config",
+			"",
+			"path to configuration file",
+		)
+
 		if err := startCmd.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -48,8 +54,12 @@ func run(args []string, ctx context.Context,
 			return fmt.Errorf("--start-block-height is required and must be greater than 0")
 		}
 
+		if *configPath == "" {
+			return fmt.Errorf("--config is required")
+		}
+
 		// stop command should not need to depend on config.Load's success. Hence, i moved it here.
-		cfg, err := config.Load()
+		cfg, err := config.Load(*configPath)
 		if err != nil {
 			return err
 		}
@@ -103,6 +113,9 @@ func runStart(ctx context.Context, cfg config.Config,
 		cfg.ContractAddress,
 		sqlcdb.New(queryPool),
 	)
+	if err != nil {
+		return err
+	}
 
 	db, err := database.NewDbManager(cfg.DBPath, cfg.BlockHeightDatabaseKey)
 	if err != nil {
@@ -156,7 +169,7 @@ func runStop() error {
 
 func usage() string {
 	return `usage:
-  archive-wrapper start --start-block-height <height>
+  archive-wrapper start --config <path> --start-block-height <height>
   archive-wrapper stop
 `
 }
