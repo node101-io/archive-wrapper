@@ -41,6 +41,7 @@ action_rows AS (
   LEFT JOIN zkapp_field field ON field.id = action_field.field_id
   WHERE account_pk.value = sqlc.arg(contract_address)::text
     AND b.height = sqlc.arg(height)::bigint
+    AND b.chain_status IN ('canonical', 'pending')
   GROUP BY
     b.id,
     b.height,

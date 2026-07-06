@@ -60,6 +60,7 @@ action_rows AS (
   LEFT JOIN zkapp_field field ON field.id = action_field.field_id
   WHERE account_pk.value = $1::text
     AND b.height = $2::bigint
+    AND b.chain_status IN ('canonical', 'pending')
   GROUP BY
     b.id,
     b.height,
