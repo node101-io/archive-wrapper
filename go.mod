@@ -6,6 +6,7 @@ require (
 	cosmossdk.io/errors v1.1.0
 	github.com/cosmos/gogoproto v1.7.2
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/joho/godotenv v1.5.1
 	github.com/node101-io/mina-signer-go v0.0.0-20260601165332-9dc4888e6819
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1

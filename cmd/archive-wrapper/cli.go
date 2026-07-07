@@ -33,7 +33,6 @@ func run(args []string, ctx context.Context,
 
 	switch strings.ToLower(args[0]) {
 	case "start":
-
 		startCmd := flag.NewFlagSet("start", flag.ContinueOnError)
 
 		startBlockHeight := startCmd.Int64(
@@ -42,9 +41,14 @@ func run(args []string, ctx context.Context,
 			"first block height to start indexing from",
 		)
 
+		defaultConfigPath := os.Getenv("ARCHIVE_WRAPPER_CONFIG")
+		if defaultConfigPath == "" {
+			defaultConfigPath = "config.yaml"
+		}
+
 		configPath := startCmd.String(
 			"config",
-			"",
+			defaultConfigPath,
 			"path to configuration file",
 		)
 
@@ -54,10 +58,6 @@ func run(args []string, ctx context.Context,
 
 		if *startBlockHeight <= 0 {
 			return fmt.Errorf("--start-block-height is required and must be greater than 0")
-		}
-
-		if *configPath == "" {
-			return fmt.Errorf("--config is required")
 		}
 
 		cfg, err := config.Load(*configPath)
@@ -70,18 +70,19 @@ func run(args []string, ctx context.Context,
 	case "stop":
 		stopCmd := flag.NewFlagSet("stop", flag.ContinueOnError)
 
+		defaultSocketPath := os.Getenv("ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH")
+		if defaultSocketPath == "" {
+			defaultSocketPath = "/tmp/archive-wrapper-mainnet.sock"
+		}
+
 		socketPath := stopCmd.String(
 			"socket-path",
-			"",
+			defaultSocketPath,
 			"path to control socket",
 		)
 
 		if err := stopCmd.Parse(args[1:]); err != nil {
 			return err
-		}
-
-		if *socketPath == "" {
-			return fmt.Errorf("--socket-path is required")
 		}
 
 		return runStop(*socketPath)
