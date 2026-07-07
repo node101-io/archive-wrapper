@@ -3,3 +3,4 @@ block_height_database_key: "archive-wrapper"
 db_path: "./data/archive-wrapper"
 confirmation_depth: 32
 grpc_listen_address: "127.0.0.1:9090"
+control_socket_path: "/tmp/archive-wrapper-mainnet.sock"

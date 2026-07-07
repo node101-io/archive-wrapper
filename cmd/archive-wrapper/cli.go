@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,7 +23,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-const sockPath = "/tmp/archive-wrapper.sock"
 const network = "unix"
 
 func run(args []string, ctx context.Context,
@@ -58,7 +60,6 @@ func run(args []string, ctx context.Context,
 			return fmt.Errorf("--config is required")
 		}
 
-		// stop command should not need to depend on config.Load's success. Hence, i moved it here.
 		cfg, err := config.Load(*configPath)
 		if err != nil {
 			return err
@@ -67,7 +68,24 @@ func run(args []string, ctx context.Context,
 		return runStart(ctx, cfg, *startBlockHeight, cancel)
 
 	case "stop":
-		return runStop()
+		stopCmd := flag.NewFlagSet("stop", flag.ContinueOnError)
+
+		socketPath := stopCmd.String(
+			"socket-path",
+			"",
+			"path to control socket",
+		)
+
+		if err := stopCmd.Parse(args[1:]); err != nil {
+			return err
+		}
+
+		if *socketPath == "" {
+			return fmt.Errorf("--socket-path is required")
+		}
+
+		return runStop(*socketPath)
+
 	case "help", "-h", "--help":
 		fmt.Print(usage())
 		return nil
@@ -76,24 +94,12 @@ func run(args []string, ctx context.Context,
 	}
 }
 
-func runStart(ctx context.Context, cfg config.Config,
-	startBlockHeight int64, cancel context.CancelFunc) error {
-
-	os.Remove(sockPath)
-
-	ln, err := net.Listen(network, sockPath)
+func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, cancel context.CancelFunc) error {
+	ln, err := listenControlSocket(cfg.ControlSocketPath, cancel)
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
-
-	go func() {
-		c, err := ln.Accept()
-		if err == nil {
-			c.Close()
-			cancel()
-		}
-	}()
+	defer cleanupControlSocket(ln, cfg.ControlSocketPath)
 
 	postgreUri := os.Getenv("POSTGRES_URI")
 
@@ -156,9 +162,8 @@ func runStart(ctx context.Context, cfg config.Config,
 	return group.Wait()
 }
 
-func runStop() error {
-
-	c, err := net.Dial(network, sockPath)
+func runStop(sockPath string) error {
+	c, err := net.DialTimeout(network, sockPath, time.Second)
 	if err != nil {
 		return err
 	}
@@ -167,9 +172,66 @@ func runStop() error {
 	return nil
 }
 
+func listenControlSocket(sockPath string, cancel context.CancelFunc) (net.Listener, error) {
+	if err := prepareControlSocket(sockPath); err != nil {
+		return nil, err
+	}
+
+	ln, err := net.Listen(network, sockPath)
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		c, err := ln.Accept()
+		if err == nil {
+			_ = c.Close()
+			cancel()
+		}
+	}()
+
+	return ln, nil
+}
+
+func cleanupControlSocket(ln net.Listener, sockPath string) {
+	_ = ln.Close()
+	_ = os.Remove(sockPath)
+}
+
+func prepareControlSocket(sockPath string) error {
+	info, err := os.Lstat(sockPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("%s exists and is not a unix socket", sockPath)
+	}
+
+	c, err := net.DialTimeout(network, sockPath, 300*time.Millisecond)
+	if err == nil {
+		_ = c.Close()
+		return fmt.Errorf("control socket already in use: %s", sockPath)
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		if errors.Is(opErr.Err, syscall.ECONNREFUSED) || errors.Is(opErr.Err, syscall.ENOENT) {
+			if err := os.Remove(sockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			return nil
+		}
+	}
+
+	return fmt.Errorf("probe control socket %s: %w", sockPath, err)
+}
+
 func usage() string {
 	return `usage:
   archive-wrapper start --config <path> --start-block-height <height>
-  archive-wrapper stop
+  archive-wrapper stop --socket-path <path>
 `
 }
