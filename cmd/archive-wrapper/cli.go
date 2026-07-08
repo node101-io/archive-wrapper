@@ -122,7 +122,7 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, ca
 	}
 	defer db.Close()
 
-	indexer, err := indexer.NewIndexer(notificationConn, client, db, startBlockHeight, cfg.ConfirmationDepth, ctx)
+	indexer, err := indexer.NewIndexer(notificationConn, client, db, startBlockHeight, cfg.ConfirmationDepth)
 	if err != nil {
 		return err
 	}

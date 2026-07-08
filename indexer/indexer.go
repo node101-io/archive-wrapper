@@ -36,7 +36,6 @@ func NewIndexer(
 	db *database.DbManager,
 	startBlockHeight int64,
 	confirmationDepth int64,
-	ctx context.Context,
 ) (*Indexer, error) {
 
 	if conn == nil {
