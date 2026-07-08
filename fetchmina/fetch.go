@@ -2,7 +2,6 @@ package fetchmina
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -48,7 +47,7 @@ func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 
 	height, err := c.queries.GetLatestBlockHeight(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("query latest block height: %w", err)
+		return 0, cosmosErrors.Wrap(err, "err at query latest block height")
 	}
 
 	return height, nil
@@ -68,7 +67,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 		Height:          blockHeight,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("query archive actions: %w", err)
+		return nil, cosmosErrors.Wrap(err, "err at query archive actions")
 	}
 
 	result := make([]actions.Action, 0)
@@ -110,7 +109,7 @@ func actionFromRawData(blockHeight int64, feePayer string, data []string) (*acti
 
 	actionTypeValue, err := strconv.Atoi(data[actionTypeIndex])
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 
 	switch actions.ActionType(actionTypeValue) {
