@@ -42,10 +42,6 @@ func run(args []string, ctx context.Context,
 		)
 
 		defaultConfigPath := os.Getenv("ARCHIVE_WRAPPER_CONFIG")
-		if defaultConfigPath == "" {
-			defaultConfigPath = "config.yaml"
-		}
-
 		configPath := startCmd.String(
 			"config",
 			defaultConfigPath,
@@ -71,10 +67,6 @@ func run(args []string, ctx context.Context,
 		stopCmd := flag.NewFlagSet("stop", flag.ContinueOnError)
 
 		defaultSocketPath := os.Getenv("ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH")
-		if defaultSocketPath == "" {
-			defaultSocketPath = "/tmp/archive-wrapper-mainnet.sock"
-		}
-
 		socketPath := stopCmd.String(
 			"socket-path",
 			defaultSocketPath,
