@@ -54,7 +54,7 @@ func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 	return height, nil
 }
 
-func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int) ([]actions.Action, error) {
+func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]actions.Action, error) {
 	if blockHeight <= 0 {
 		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidBlockHeight, "block height must be greater than 0")
 	}
@@ -65,7 +65,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int) ([]actio
 
 	rows, err := c.queries.ListActionRows(ctx, sqlcdb.ListActionRowsParams{
 		ContractAddress: c.contractAddress,
-		Height:          int64(blockHeight),
+		Height:          blockHeight,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query archive actions: %w", err)
@@ -77,7 +77,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int) ([]actio
 			continue
 		}
 
-		action, err := actionFromRawData(int(row.Height), row.FeePayer, row.Data)
+		action, err := actionFromRawData(row.Height, row.FeePayer, row.Data)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +103,7 @@ func (c *MinaClient) validate() error {
 	return nil
 }
 
-func actionFromRawData(blockHeight int, feePayer string, data []string) (*actions.Action, error) {
+func actionFromRawData(blockHeight int64, feePayer string, data []string) (*actions.Action, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
@@ -135,7 +135,7 @@ func actionFromRawData(blockHeight int, feePayer string, data []string) (*action
 	}
 
 	return &actions.Action{
-		BlockHeight: int64(blockHeight),
+		BlockHeight: blockHeight,
 		FeePayer:    minaAddr,
 		ActionType:  actionType,
 		Amount:      amount,

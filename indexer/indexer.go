@@ -187,7 +187,7 @@ func withRetry(ctx context.Context, fn func() error) error {
 
 func (indexer *Indexer) indexAvailableBlocks(ctx context.Context, height int64) error {
 
-	actions, err := indexer.client.FetchActions(ctx, int(height))
+	actions, err := indexer.client.FetchActions(ctx, height)
 	if err != nil {
 		return err
 	}
