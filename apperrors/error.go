@@ -37,4 +37,11 @@ var (
 
 	ErrNilIndexer            = errors.New("nil indexer")
 	ErrBlockHeightRegression = errors.New("block height cursor cannot move backwards")
+
+	ErrGrpcAddressRequired       = errors.New("grpc_listen_address is required")
+	ErrContractAddressRequired   = errors.New("contract_address is required")
+	ErrBlockHeightDbKeyRequired  = errors.New("block_height_database_key is required")
+	ErrDbPathRequired            = errors.New("db_path is required")
+	ErrControlSocketPathRequired = errors.New("control socket path is required")
+	ErrConfirmationDepthRequired = errors.New("confirmation_depth is required and must be greater than 0")
 )

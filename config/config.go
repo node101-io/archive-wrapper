@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/spf13/viper"
 )
 
@@ -36,22 +37,22 @@ func Load(configFile string) (Config, error) {
 	cfg.ControlSocketPath = strings.TrimSpace(cfg.ControlSocketPath)
 
 	if cfg.GRPCListenAddress == "" {
-		return Config{}, fmt.Errorf("grpc_listen_address is required")
+		return Config{}, apperrors.ErrGrpcAddressRequired
 	}
 	if cfg.ContractAddress == "" {
-		return Config{}, fmt.Errorf("contract_address is required")
+		return Config{}, apperrors.ErrContractAddressRequired
 	}
 	if cfg.BlockHeightDatabaseKey == "" {
-		return Config{}, fmt.Errorf("block_height_database_key is required")
+		return Config{}, apperrors.ErrBlockHeightDbKeyRequired
 	}
 	if cfg.DBPath == "" {
-		return Config{}, fmt.Errorf("db_path is required")
+		return Config{}, apperrors.ErrDbPathRequired
 	}
 	if cfg.ControlSocketPath == "" {
-		return Config{}, fmt.Errorf("control_socket_path is required")
+		return Config{}, apperrors.ErrControlSocketPathRequired
 	}
 	if cfg.ConfirmationDepth <= 0 {
-		return Config{}, fmt.Errorf("confirmation_depth is required and must be greater than 0")
+		return Config{}, apperrors.ErrConfirmationDepthRequired
 	}
 
 	return cfg, nil
