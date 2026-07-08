@@ -125,7 +125,7 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 		ctx,
 		"LISTEN blocks_inserted",
 	); err != nil {
-		return fmt.Errorf("listen blocks_inserted: %w", err)
+		return err
 	}
 
 	// 2. Persisted cursor'ı yükle ve mevcut tip'e kadar catch-up yap.

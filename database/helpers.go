@@ -3,6 +3,7 @@ package database
 import (
 	"encoding/binary"
 
+	cosmosErrors "cosmossdk.io/errors"
 	actions "github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
 )
@@ -42,7 +43,7 @@ func validateRecord(record actions.DbRecord) error {
 		}
 
 		if act.Amount <= 0 {
-			return apperrors.ErrAmountMustBeBiggerThanZero
+			return cosmosErrors.Wrap(apperrors.ErrInvalidAmount, "non-positive amount")
 		}
 	}
 
