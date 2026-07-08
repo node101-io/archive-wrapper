@@ -86,23 +86,33 @@ func run(args []string, ctx context.Context,
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage())
 	}
 }
-
-func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, cancel context.CancelFunc) error {
+func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, cancel context.CancelFunc) (retErr error) {
 	ln, err := listenControlSocket(cfg.ControlSocketPath, cancel)
 	if err != nil {
 		return err
 	}
-	defer cleanupControlSocket(ln, cfg.ControlSocketPath)
+	defer func() {
+		if err := ln.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close control socket listener: %w", err))
+		}
+		if err := os.Remove(cfg.ControlSocketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			retErr = errors.Join(retErr, fmt.Errorf("remove control socket: %w", err))
+		}
+	}()
 
-	postgreUri := os.Getenv("POSTGRES_URI")
+	postgresURI := os.Getenv("POSTGRES_URI")
 
-	notificationConn, err := pgx.Connect(ctx, postgreUri)
+	notificationConn, err := pgx.Connect(ctx, postgresURI)
 	if err != nil {
 		return err
 	}
-	defer notificationConn.Close(context.Background())
+	defer func() {
+		if err := notificationConn.Close(context.Background()); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close notification connection: %w", err))
+		}
+	}()
 
-	queryPool, err := pgxpool.New(ctx, postgreUri)
+	queryPool, err := pgxpool.New(ctx, postgresURI)
 	if err != nil {
 		return err
 	}
@@ -120,7 +130,11 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, ca
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close db: %w", err))
+		}
+	}()
 
 	indexer, err := indexer.NewIndexer(notificationConn, client, db, startBlockHeight, cfg.ConfirmationDepth)
 	if err != nil {
@@ -131,7 +145,11 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, ca
 	if err != nil {
 		return fmt.Errorf("listen gRPC: %w", err)
 	}
-	defer grpcListener.Close()
+	defer func() {
+		if err := grpcListener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			retErr = errors.Join(retErr, fmt.Errorf("close gRPC listener: %w", err))
+		}
+	}()
 
 	grpcServer := grpc.NewServer()
 	query.RegisterQueryServer(grpcServer, query.NewQuery(db))
@@ -152,19 +170,27 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, ca
 		return nil
 	})
 
-	return group.Wait()
+	retErr = group.Wait()
+	if errors.Is(retErr, context.Canceled) {
+		retErr = nil
+	}
+
+	return
 }
 
-func runStop(sockPath string) error {
+func runStop(sockPath string) (retErr error) {
 	c, err := net.DialTimeout(network, sockPath, time.Second)
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() {
+		if err := c.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close stop connection: %w", err))
+		}
+	}()
 
-	return nil
+	return
 }
-
 func listenControlSocket(sockPath string, cancel context.CancelFunc) (net.Listener, error) {
 	if err := prepareControlSocket(sockPath); err != nil {
 		return nil, err
@@ -184,11 +210,6 @@ func listenControlSocket(sockPath string, cancel context.CancelFunc) (net.Listen
 	}()
 
 	return ln, nil
-}
-
-func cleanupControlSocket(ln net.Listener, sockPath string) {
-	_ = ln.Close()
-	_ = os.Remove(sockPath)
 }
 
 func prepareControlSocket(sockPath string) error {

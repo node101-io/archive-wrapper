@@ -18,7 +18,9 @@ func TestQuery(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
-	defer manager.Close()
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
 
 	want := actions.DbRecord{
 		Key: 7,
