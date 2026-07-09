@@ -34,6 +34,11 @@ func NewMinaClient(contractAddress string, queries *sqlcdb.Queries) (*MinaClient
 		return nil, apperrors.ErrInvalidContractAddress
 	}
 
+	_, err := address.NewAddress(contractAddress).Marshal()
+	if err != nil {
+		return nil, err
+	}
+
 	return &MinaClient{
 		queries:         queries,
 		contractAddress: contractAddress,
