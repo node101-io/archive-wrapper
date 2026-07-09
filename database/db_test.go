@@ -2,6 +2,7 @@ package database
 
 import (
 	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/node101-io/archive-wrapper/actions"
@@ -14,7 +15,8 @@ const blockHeightDatabaseKey = "db-key"
 
 func TestDbManager_InsertThenGet(t *testing.T) {
 
-	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey)
+	logger := slog.Default()
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
 
 	require.NoError(t, err)
 	require.NotNil(t, manager)
@@ -55,7 +57,10 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 
 func TestDbManagerInsertBlockHeight(t *testing.T) {
 
-	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey)
+	logger := slog.Default()
+	require.NotNil(t, logger)
+
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
@@ -83,7 +88,11 @@ func TestDbManagerInsertBlockHeight(t *testing.T) {
 
 }
 func TestDbManagerInsertBlockHeightRejectsRegression(t *testing.T) {
-	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey)
+
+	logger := slog.Default()
+	require.NotNil(t, logger)
+
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 

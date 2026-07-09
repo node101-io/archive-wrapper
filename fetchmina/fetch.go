@@ -2,6 +2,7 @@ package fetchmina
 
 import (
 	"context"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -19,11 +20,16 @@ const (
 )
 
 type MinaClient struct {
+	logger          *slog.Logger
 	queries         *sqlcdb.Queries
 	contractAddress string
 }
 
-func NewMinaClient(contractAddress string, queries *sqlcdb.Queries) (*MinaClient, error) {
+func NewMinaClient(contractAddress string, queries *sqlcdb.Queries, logger *slog.Logger) (*MinaClient, error) {
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
+	logger = logger.With("component", "fetchmina")
 
 	if queries == nil {
 		return nil, apperrors.ErrNilQueries
@@ -39,7 +45,10 @@ func NewMinaClient(contractAddress string, queries *sqlcdb.Queries) (*MinaClient
 		return nil, err
 	}
 
+	logger.Info("mina client initialized", "contract_address", contractAddress)
+
 	return &MinaClient{
+		logger:          logger,
 		queries:         queries,
 		contractAddress: contractAddress,
 	}, nil
@@ -54,6 +63,8 @@ func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, cosmosErrors.Wrap(err, "err at query latest block height")
 	}
+
+	c.logger.InfoContext(ctx, "fetched latest mina block height", "height", height)
 
 	return height, nil
 }
@@ -92,12 +103,27 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 		result = append(result, *action)
 	}
 
+	c.logger.InfoContext(
+		ctx,
+		"fetched actions",
+		"block_height",
+		blockHeight,
+		"rows",
+		len(rows),
+		"actions",
+		len(result),
+	)
+
 	return result, nil
 }
 
 func (c *MinaClient) validate() error {
 	if c == nil || c.queries == nil {
 		return apperrors.ErrNilMinaClient
+	}
+
+	if c.logger == nil {
+		return apperrors.ErrNilLogger
 	}
 
 	if strings.TrimSpace(c.contractAddress) == "" {

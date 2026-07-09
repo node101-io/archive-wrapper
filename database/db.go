@@ -2,6 +2,7 @@ package database
 
 import (
 	"errors"
+	"log/slog"
 	"sync"
 
 	"github.com/node101-io/archive-wrapper/apperrors"
@@ -15,19 +16,27 @@ import (
 )
 
 type DbManager struct {
+	logger                 *slog.Logger
 	db                     *leveldb.DB
 	blockHeightDatabaseKey string
 	blockHeightMu          sync.Mutex
 }
 
-func NewDbManager(path, blockHeightDatabaseKey string) (*DbManager, error) {
+func NewDbManager(path, blockHeightDatabaseKey string, logger *slog.Logger) (*DbManager, error) {
+	if logger == nil {
+		return nil, apperrors.ErrNilLogger
+	}
+	logger = logger.With("component", "database", "path", path)
 
 	db, err := leveldb.OpenFile(path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open leveldb: %w", err)
 	}
 
+	logger.Info("leveldb opened")
+
 	return &DbManager{
+		logger:                 logger,
 		db:                     db,
 		blockHeightDatabaseKey: blockHeightDatabaseKey,
 	}, nil
@@ -41,6 +50,10 @@ func (manager *DbManager) Validate() error {
 
 	if manager.db == nil {
 		return apperrors.ErrUninitializedDB
+	}
+
+	if manager.logger == nil {
+		return apperrors.ErrNilLogger
 	}
 
 	return nil
@@ -59,6 +72,10 @@ func (manager *DbManager) Insert(record actions.DbRecord) error {
 	marshalled, err := proto.Marshal(&record)
 	if err != nil {
 		return err
+	}
+
+	if manager.logger != nil {
+		manager.logger.Debug("storing block record", "height", record.Key, "actions", len(record.Actions))
 	}
 
 	return manager.db.Put(encodeBlockHeight(record.Key), marshalled, nil)
@@ -93,6 +110,10 @@ func (manager *DbManager) Get(height int64) (actions.DbRecord, error) {
 	err = proto.Unmarshal(marshalled, &record)
 	if err != nil {
 		return actions.DbRecord{}, err
+	}
+
+	if manager.logger != nil {
+		manager.logger.Debug("loaded block record", "height", height, "actions", len(record.Actions))
 	}
 
 	return record, nil
@@ -132,6 +153,9 @@ func (manager *DbManager) InsertBlockHeight(height int64) error {
 
 		// Duplicate update idempotent olsun.
 		if height == currentHeight {
+			if manager.logger != nil {
+				manager.logger.Debug("block height cursor already up to date", "height", height)
+			}
 			return nil
 		}
 
@@ -140,6 +164,10 @@ func (manager *DbManager) InsertBlockHeight(height int64) error {
 
 	default:
 		return fmt.Errorf("get block height cursor: %w", err)
+	}
+
+	if manager.logger != nil {
+		manager.logger.Debug("updating block height cursor", "height", height)
 	}
 
 	return manager.db.Put(key, encodeBlockHeight(height), nil)
@@ -164,7 +192,16 @@ func (manager *DbManager) GetBlockHeight() (int64, error) {
 		return 0, err
 	}
 
-	return decodeBlockHeight(record)
+	height, err := decodeBlockHeight(record)
+	if err != nil {
+		return 0, err
+	}
+
+	if manager.logger != nil {
+		manager.logger.Debug("loaded latest processed block height", "height", height)
+	}
+
+	return height, nil
 }
 
 func (manager *DbManager) Close() error {
@@ -175,6 +212,10 @@ func (manager *DbManager) Close() error {
 
 	err := manager.db.Close()
 	manager.db = nil
+
+	if err == nil && manager.logger != nil {
+		manager.logger.Info("leveldb closed")
+	}
 
 	return err
 }

@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	actions "github.com/node101-io/archive-wrapper/actions"
@@ -15,17 +16,20 @@ import (
 const blockHeightDatabaseKey = "db-key"
 
 func TestNewIndexerRejectsNilConnection(t *testing.T) {
-	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey)
+
+	logger := slog.Default()
+	require.NotNil(t, logger)
+
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, db.Close())
 	}()
 
-	indexer, err := NewIndexer(nil, &fetchmina.MinaClient{}, db, 10, 32)
+	indexer, err := NewIndexer(nil, &fetchmina.MinaClient{}, db, 10, 32, logger)
 
 	require.Nil(t, indexer)
-	require.Error(t, err)
-	require.True(t, errors.Is(err, apperrors.ErrNilConnection))
+	require.ErrorIs(t, err, apperrors.ErrNilConnection)
 }
 
 func TestIndexActionsBuildsRecord(t *testing.T) {
@@ -47,7 +51,8 @@ func TestWithRetryReturnsContextErrorWhenCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := withRetry(ctx, func() error {
+	logger := slog.Default()
+	err := withRetry(ctx, logger, "test operation", func() error {
 		return errors.New("boom")
 	})
 

@@ -2,6 +2,11 @@ package apperrors
 
 import "errors"
 
+// logger errors
+var (
+	ErrNilLogger = errors.New("nil logger")
+)
+
 // cmd errors
 var (
 	ErrPostgreUriRequired = errors.New("POSTGRES_URI is required")

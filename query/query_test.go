@@ -2,6 +2,8 @@ package query
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 
 	actions "github.com/node101-io/archive-wrapper/actions"
@@ -14,7 +16,10 @@ const blockHeightDatabaseKey = "db-key"
 
 func TestQuery(t *testing.T) {
 
-	manager, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey)
+	logger := slog.Default()
+	require.NotNil(t, logger)
+
+	manager, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
@@ -40,7 +45,8 @@ func TestQuery(t *testing.T) {
 	err = manager.InsertBlockHeight(want.Key)
 	require.NoError(t, err)
 
-	q := NewQuery(manager)
+	q, err := NewQuery(manager, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.NoError(t, err)
 	got, err := q.ActionsByBlockHeight(context.Background(), &QueryActionsByBlockHeightRequest{
 		BlockHeight: 7,
 	})
@@ -56,7 +62,11 @@ func TestQuery(t *testing.T) {
 }
 
 func TestQuery_ProcessedEmptyBlockReturnsEmptyList(t *testing.T) {
-	manager, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey)
+
+	logger := slog.Default()
+	require.NotNil(t, logger)
+
+	manager, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 
@@ -67,7 +77,8 @@ func TestQuery_ProcessedEmptyBlockReturnsEmptyList(t *testing.T) {
 	err = manager.InsertBlockHeight(7)
 	require.NoError(t, err)
 
-	q := NewQuery(manager)
+	q, err := NewQuery(manager, logger)
+	require.NoError(t, err)
 
 	got, err := q.ActionsByBlockHeight(context.Background(), &QueryActionsByBlockHeightRequest{
 		BlockHeight: 7,

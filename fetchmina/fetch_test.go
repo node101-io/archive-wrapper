@@ -2,6 +2,7 @@ package fetchmina
 
 import (
 	"errors"
+	"log/slog"
 	"testing"
 
 	actions "github.com/node101-io/archive-wrapper/actions"
@@ -13,7 +14,11 @@ import (
 const validAddress = "B62qjTpSX2R4fyqJrC9pzvm5PSZb5GMaYBXh8di3TBn6pPC9XXYFC9k"
 
 func TestNewMinaClientRejectsNilQueries(t *testing.T) {
-	client, err := NewMinaClient(validAddress, nil)
+
+	logger := slog.Default()
+	require.NotNil(t, logger)
+
+	client, err := NewMinaClient(validAddress, nil, logger)
 
 	require.Nil(t, client)
 	require.Error(t, err)
@@ -21,8 +26,11 @@ func TestNewMinaClientRejectsNilQueries(t *testing.T) {
 }
 
 func TestNewMinaClientRejectsInvalidContractAddress(t *testing.T) {
-	client, err := NewMinaClient("not-an-address", &sqlcdb.Queries{})
 
+	logger := slog.Default()
+	require.NotNil(t, logger)
+
+	client, err := NewMinaClient("not-an-address", &sqlcdb.Queries{}, logger)
 	require.Nil(t, client)
 	require.Error(t, err)
 }

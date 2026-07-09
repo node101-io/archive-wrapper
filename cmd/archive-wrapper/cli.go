@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -27,7 +28,9 @@ import (
 const network = "unix"
 
 func run(args []string, ctx context.Context,
-	cancel context.CancelFunc) error {
+	cancel context.CancelFunc, logger *slog.Logger) error {
+	cliLogger := logger.With("component", "cli")
+
 	if len(args) == 0 {
 		return fmt.Errorf("missing command\n\n%s", usage())
 	}
@@ -57,12 +60,20 @@ func run(args []string, ctx context.Context,
 			return fmt.Errorf("--start-block-height is required and must be greater than 0")
 		}
 
+		cliLogger.Info(
+			"start command received",
+			"config",
+			*configPath,
+			"start_block_height",
+			*startBlockHeight,
+		)
+
 		cfg, err := config.Load(*configPath)
 		if err != nil {
 			return err
 		}
 
-		return runStart(ctx, cfg, *startBlockHeight, cancel)
+		return runStart(ctx, cfg, *startBlockHeight, cancel, logger)
 
 	case "stop":
 		stopCmd := flag.NewFlagSet("stop", flag.ContinueOnError)
@@ -78,7 +89,9 @@ func run(args []string, ctx context.Context,
 			return err
 		}
 
-		return runStop(*socketPath)
+		cliLogger.Info("stop command received", "socket_path", *socketPath)
+
+		return runStop(*socketPath, logger)
 
 	case "help", "-h", "--help":
 		fmt.Print(usage())
@@ -87,8 +100,23 @@ func run(args []string, ctx context.Context,
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage())
 	}
 }
-func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, cancel context.CancelFunc) (retErr error) {
-	ln, err := listenControlSocket(cfg.ControlSocketPath, cancel)
+func runStart(ctx context.Context, cfg config.Config,
+	startBlockHeight int64, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
+	runtimeLogger := logger.With("component", "runtime")
+
+	runtimeLogger.Info(
+		"starting archive wrapper",
+		"start_block_height",
+		startBlockHeight,
+		"grpc_listen_address",
+		cfg.GRPCListenAddress,
+		"control_socket_path",
+		cfg.ControlSocketPath,
+		"db_path",
+		cfg.DBPath,
+	)
+
+	ln, err := listenControlSocket(cfg.ControlSocketPath, cancel, logger)
 	if err != nil {
 		return err
 	}
@@ -106,10 +134,13 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, ca
 		return apperrors.ErrPostgreUriRequired
 	}
 
+	runtimeLogger.Info("connecting to postgres")
+
 	notificationConn, err := pgx.Connect(ctx, postgresURI)
 	if err != nil {
 		return err
 	}
+	runtimeLogger.Info("postgres notification connection ready")
 	defer func() {
 		if err := notificationConn.Close(context.Background()); err != nil {
 			retErr = errors.Join(retErr, fmt.Errorf("close notification connection: %w", err))
@@ -120,17 +151,19 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, ca
 	if err != nil {
 		return err
 	}
+	runtimeLogger.Info("postgres query pool ready")
 	defer queryPool.Close()
 
 	client, err := fetchmina.NewMinaClient(
 		cfg.ContractAddress,
 		sqlcdb.New(queryPool),
+		logger,
 	)
 	if err != nil {
 		return err
 	}
 
-	db, err := database.NewDbManager(cfg.DBPath, cfg.BlockHeightDatabaseKey)
+	db, err := database.NewDbManager(cfg.DBPath, cfg.BlockHeightDatabaseKey, logger)
 	if err != nil {
 		return err
 	}
@@ -140,7 +173,14 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, ca
 		}
 	}()
 
-	indexer, err := indexer.NewIndexer(notificationConn, client, db, startBlockHeight, cfg.ConfirmationDepth)
+	indexer, err := indexer.NewIndexer(
+		notificationConn,
+		client,
+		db,
+		startBlockHeight,
+		cfg.ConfirmationDepth,
+		logger,
+	)
 	if err != nil {
 		return err
 	}
@@ -156,20 +196,43 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, ca
 	}()
 
 	grpcServer := grpc.NewServer()
-	query.RegisterQueryServer(grpcServer, query.NewQuery(db))
+	queryService, err := query.NewQuery(db, logger)
+	if err != nil {
+		return err
+	}
+	query.RegisterQueryServer(grpcServer, queryService)
 
 	group, runCtx := errgroup.WithContext(ctx)
 
 	group.Go(func() error {
-		return indexer.Run(runCtx)
+		runtimeLogger.Info("starting indexer run loop")
+
+		err := indexer.Run(runCtx)
+		if err != nil {
+			runtimeLogger.Error("indexer run loop stopped with error", "err", err)
+			return err
+		}
+
+		runtimeLogger.Info("indexer run loop stopped")
+		return nil
 	})
 
 	group.Go(func() error {
-		return grpcServer.Serve(grpcListener)
+		runtimeLogger.Info("gRPC server listening", "address", cfg.GRPCListenAddress)
+
+		err := grpcServer.Serve(grpcListener)
+		if err != nil {
+			runtimeLogger.Error("gRPC server stopped with error", "err", err)
+			return err
+		}
+
+		runtimeLogger.Info("gRPC server stopped")
+		return nil
 	})
 
 	group.Go(func() error {
 		<-runCtx.Done()
+		runtimeLogger.Info("shutdown requested, stopping gRPC server")
 		grpcServer.GracefulStop()
 		return nil
 	})
@@ -182,7 +245,11 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, ca
 	return
 }
 
-func runStop(sockPath string) (retErr error) {
+func runStop(sockPath string, logger *slog.Logger) (retErr error) {
+	cliLogger := logger.With("component", "cli")
+
+	cliLogger.Info("sending stop request", "socket_path", sockPath)
+
 	c, err := net.DialTimeout(network, sockPath, time.Second)
 	if err != nil {
 		return err
@@ -193,10 +260,14 @@ func runStop(sockPath string) (retErr error) {
 		}
 	}()
 
+	cliLogger.Info("stop request sent", "socket_path", sockPath)
+
 	return
 }
-func listenControlSocket(sockPath string, cancel context.CancelFunc) (net.Listener, error) {
-	if err := prepareControlSocket(sockPath); err != nil {
+func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slog.Logger) (net.Listener, error) {
+	controlLogger := logger.With("component", "control_socket")
+
+	if err := prepareControlSocket(sockPath, logger); err != nil {
 		return nil, err
 	}
 
@@ -205,18 +276,27 @@ func listenControlSocket(sockPath string, cancel context.CancelFunc) (net.Listen
 		return nil, err
 	}
 
+	controlLogger.Info("control socket listening", "socket_path", sockPath)
+
 	go func() {
 		c, err := ln.Accept()
 		if err == nil {
 			_ = c.Close()
+			controlLogger.Info("stop request received via control socket", "socket_path", sockPath)
 			cancel()
+			return
+		}
+		if !errors.Is(err, net.ErrClosed) {
+			controlLogger.Error("control socket accept failed", "socket_path", sockPath, "err", err)
 		}
 	}()
 
 	return ln, nil
 }
 
-func prepareControlSocket(sockPath string) error {
+func prepareControlSocket(sockPath string, logger *slog.Logger) error {
+	controlLogger := logger.With("component", "control_socket")
+
 	info, err := os.Lstat(sockPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -231,12 +311,14 @@ func prepareControlSocket(sockPath string) error {
 	c, err := net.DialTimeout(network, sockPath, 300*time.Millisecond)
 	if err == nil {
 		_ = c.Close()
+		controlLogger.Warn("control socket already in use", "socket_path", sockPath)
 		return fmt.Errorf("control socket already in use: %s", sockPath)
 	}
 
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
 		if errors.Is(opErr.Err, syscall.ECONNREFUSED) || errors.Is(opErr.Err, syscall.ENOENT) {
+			controlLogger.Warn("removing stale control socket", "socket_path", sockPath)
 			if err := os.Remove(sockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
