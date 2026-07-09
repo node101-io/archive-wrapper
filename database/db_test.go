@@ -1,9 +1,11 @@
 package database
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/node101-io/archive-wrapper/actions"
+	"github.com/node101-io/archive-wrapper/apperrors"
 
 	"github.com/stretchr/testify/require"
 )
@@ -79,4 +81,19 @@ func TestDbManagerInsertBlockHeight(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 
+}
+func TestDbManagerInsertBlockHeightRejectsRegression(t *testing.T) {
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey)
+	require.NoError(t, err)
+	require.NotNil(t, manager)
+
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
+
+	require.NoError(t, manager.InsertBlockHeight(10))
+
+	err = manager.InsertBlockHeight(9)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, apperrors.ErrBlockHeightRegression))
 }
