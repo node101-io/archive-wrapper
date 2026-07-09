@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/node101-io/archive-wrapper/config"
 	"github.com/node101-io/archive-wrapper/database"
 	"github.com/node101-io/archive-wrapper/fetchmina"
@@ -100,7 +101,10 @@ func runStart(ctx context.Context, cfg config.Config, startBlockHeight int64, ca
 		}
 	}()
 
-	postgresURI := os.Getenv("POSTGRES_URI")
+	postgresURI := strings.TrimSpace(os.Getenv("POSTGRES_URI"))
+	if postgresURI == "" {
+		return apperrors.ErrPostgreUriRequired
+	}
 
 	notificationConn, err := pgx.Connect(ctx, postgresURI)
 	if err != nil {
