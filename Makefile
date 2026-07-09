@@ -13,7 +13,7 @@ fmt:
 	gofmt -w $(shell rg --files -g '*.go')
 
 test: ensure-cache
-	go test -tags=$(GO_BUILD_TAGS) ./...
+	go test -tags=$(GO_BUILD_TAGS) -v ./...
 
 lint: ensure-cache
 	@command -v golangci-lint >/dev/null || (echo "golangci-lint is required but not installed" && exit 1)
