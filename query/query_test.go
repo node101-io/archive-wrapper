@@ -53,5 +53,27 @@ func TestQuery(t *testing.T) {
 	require.Equal(t, got.Actions[0].FeePayer, want.Actions[0].FeePayer)
 	require.Equal(t, got.Actions[0].ActionType, want.Actions[0].ActionType)
 	require.Equal(t, got.Actions[0].Amount, want.Actions[0].Amount)
+}
 
+func TestQuery_ProcessedEmptyBlockReturnsEmptyList(t *testing.T) {
+	manager, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey)
+	require.NoError(t, err)
+	require.NotNil(t, manager)
+
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
+
+	err = manager.InsertBlockHeight(7)
+	require.NoError(t, err)
+
+	q := NewQuery(manager)
+
+	got, err := q.ActionsByBlockHeight(context.Background(), &QueryActionsByBlockHeightRequest{
+		BlockHeight: 7,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Empty(t, got.Actions)
 }
