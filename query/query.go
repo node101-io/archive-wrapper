@@ -83,20 +83,12 @@ func (q *Query) ActionsByBlockHeight(
 		)
 	}
 	if !exists {
-		return nil, status.Errorf(
-			codes.NotFound,
-			"no actions found for block %d",
-			in.BlockHeight,
-		)
+		return &QueryActionsByBlockHeightResponse{}, nil
 	}
 
 	record, err := q.db.Get(in.BlockHeight)
 	if errors.Is(err, leveldb.ErrNotFound) {
-		return nil, status.Errorf(
-			codes.NotFound,
-			"no actions found for block %d",
-			in.BlockHeight,
-		)
+		return &QueryActionsByBlockHeightResponse{}, nil
 	}
 	if err != nil {
 		return nil, status.Error(
