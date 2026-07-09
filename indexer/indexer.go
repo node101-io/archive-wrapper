@@ -118,6 +118,7 @@ func (indexer *Indexer) syncTo(
 	ctx context.Context,
 	target int64,
 ) error {
+	// Start one block behind so the first loop begins at startBlockHeight.
 	cursor := indexer.startBlockHeight - 1
 
 	exists, err := indexer.db.HasBlockHeight()
@@ -261,6 +262,7 @@ func (indexer *Indexer) indexAvailableBlocks(ctx context.Context, height int64) 
 	}
 
 	if len(actions) == 0 {
+		// Empty blocks still move the cursor forward.
 		indexer.logger.InfoContext(ctx, "processed empty block", "height", height)
 		return indexer.db.InsertBlockHeight(height)
 	}

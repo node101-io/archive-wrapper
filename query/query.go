@@ -78,6 +78,7 @@ func (q *Query) ActionsByBlockHeight(
 		)
 	}
 
+	// The latest processed cursor tells us whether this height is queryable yet.
 	latestHeight, err := q.db.GetBlockHeight()
 	if errors.Is(err, leveldb.ErrNotFound) {
 		q.logger.WarnContext(ctx, "query requested before any block was processed")
@@ -119,6 +120,7 @@ func (q *Query) ActionsByBlockHeight(
 			"failed to check block actions",
 		)
 	}
+	// Inside the processed range, a missing record is treated as an empty block.
 	if !exists {
 		q.logger.InfoContext(
 			ctx,

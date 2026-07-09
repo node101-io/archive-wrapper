@@ -40,6 +40,7 @@ func NewMinaClient(contractAddress string, queries *sqlcdb.Queries, logger *slog
 		return nil, apperrors.ErrInvalidContractAddress
 	}
 
+	// Validate once here so later queries can trust the configured address.
 	_, err := address.NewAddress(contractAddress).Marshal()
 	if err != nil {
 		return nil, err
@@ -88,6 +89,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 
 	result := make([]actions.Action, 0)
 	for _, row := range rows {
+		// Empty payload means there is nothing usable to index from this row.
 		if len(row.Data) == 0 {
 			continue
 		}
@@ -148,6 +150,7 @@ func actionFromRawData(blockHeight int64, feePayer string, data []string) (*acti
 		return nil, nil
 	case actions.ActionType_DEPOSIT, actions.ActionType_WITHDRAW:
 	default:
+		// Ignore action types we do not index yet.
 		return nil, nil
 	}
 
@@ -187,6 +190,7 @@ func parseActionData(data []string) (actions.ActionType, int64, error) {
 		return actions.ActionType_UNSPECIFIED, 0, nil
 
 	case int(actions.ActionType_DEPOSIT), int(actions.ActionType_WITHDRAW):
+		// These action types expect the amount field to be present.
 		if len(data) < minimumActionFields {
 			return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "missing fields")
 		}

@@ -121,6 +121,7 @@ func runStart(ctx context.Context, cfg config.Config,
 		return err
 	}
 	defer func() {
+		// Always remove the socket path on shutdown so the next start begins cleanly.
 		if err := ln.Close(); err != nil {
 			retErr = errors.Join(retErr, fmt.Errorf("close control socket listener: %w", err))
 		}
@@ -232,6 +233,7 @@ func runStart(ctx context.Context, cfg config.Config,
 
 	group.Go(func() error {
 		<-runCtx.Done()
+		// Let in-flight RPCs finish before the server stops.
 		runtimeLogger.Info("shutdown requested, stopping gRPC server")
 		grpcServer.GracefulStop()
 		return nil
@@ -279,6 +281,7 @@ func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slo
 	controlLogger.Info("control socket listening", "socket_path", sockPath)
 
 	go func() {
+		// One successful connection is enough to trigger a graceful shutdown.
 		c, err := ln.Accept()
 		if err == nil {
 			_ = c.Close()
@@ -318,6 +321,7 @@ func prepareControlSocket(sockPath string, logger *slog.Logger) error {
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
 		if errors.Is(opErr.Err, syscall.ECONNREFUSED) || errors.Is(opErr.Err, syscall.ENOENT) {
+			// Refused or missing means the old socket file is stale and safe to remove.
 			controlLogger.Warn("removing stale control socket", "socket_path", sockPath)
 			if err := os.Remove(sockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
