@@ -216,6 +216,10 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 func withRetry(ctx context.Context, logger *slog.Logger, operation string, fn func() error) error {
 	var err error
 
+	if logger == nil {
+		return apperrors.ErrNilLogger
+	}
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if err = fn(); err == nil {
 			return nil
