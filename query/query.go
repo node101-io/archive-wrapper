@@ -22,6 +22,14 @@ func NewQuery(db *database.DbManager, logger *slog.Logger) (*Query, error) {
 		return nil, apperrors.ErrNilLogger
 	}
 
+	if db == nil {
+		return nil, apperrors.ErrNilManager
+	}
+
+	if err := db.Validate(); err != nil {
+		return nil, err
+	}
+
 	logger = logger.With("component", "query")
 	logger.Info("query service initialized")
 
