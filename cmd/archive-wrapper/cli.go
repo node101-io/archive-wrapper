@@ -56,6 +56,10 @@ func run(args []string, ctx context.Context,
 			return err
 		}
 
+		if strings.TrimSpace(*configPath) == "" {
+			return fmt.Errorf("--config is required unless ARCHIVE_WRAPPER_CONFIG is set")
+		}
+
 		if *startBlockHeight <= 0 {
 			return fmt.Errorf("--start-block-height is required and must be greater than 0")
 		}
@@ -87,6 +91,10 @@ func run(args []string, ctx context.Context,
 
 		if err := stopCmd.Parse(args[1:]); err != nil {
 			return err
+		}
+
+		if strings.TrimSpace(*socketPath) == "" {
+			return fmt.Errorf("--socket-path is required unless ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH is set")
 		}
 
 		cliLogger.Info("stop command received", "socket_path", *socketPath)

@@ -15,8 +15,7 @@ import (
 
 func main() {
 
-	err := godotenv.Load()
-	if err != nil {
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to load environment file: %v\n", err)
 		os.Exit(1)
 	}
