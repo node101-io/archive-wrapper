@@ -1,7 +1,11 @@
 CREATE TABLE blocks (
   id BIGINT PRIMARY KEY,
   height BIGINT NOT NULL,
-  chain_status TEXT NOT NULL
+  chain_status TEXT NOT NULL,
+  global_slot_since_genesis BIGINT,
+  parent_id BIGINT,
+  parent_hash TEXT,
+  state_hash TEXT
 );
 
 CREATE TABLE blocks_zkapp_commands (

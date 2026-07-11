@@ -23,12 +23,40 @@ func (q *Queries) GetLatestBlockHeight(ctx context.Context) (int64, error) {
 }
 
 const listActionRows = `-- name: ListActionRows :many
-WITH
+WITH RECURSIVE
+pending_tip AS (
+  SELECT
+    b.id,
+    b.parent_id,
+    b.height::bigint AS height
+  FROM blocks b
+  WHERE b.chain_status = 'pending'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM blocks child
+      WHERE child.parent_id = b.id
+        AND child.chain_status = 'pending'
+    )
+  ORDER BY
+    b.height DESC,
+    COALESCE(b.global_slot_since_genesis, 0) DESC,
+    b.id DESC
+  LIMIT 1
+),
+best_chain AS (
+  SELECT id, parent_id, height
+  FROM pending_tip
+
+  UNION ALL
+
+  SELECT b.id, b.parent_id, b.height::bigint
+  FROM blocks b
+  JOIN best_chain bc ON bc.parent_id = b.id
+),
 action_rows AS (
   SELECT
     b.id AS block_id,
     b.height::bigint AS height,
-    b.chain_status,
     bzc.sequence_no,
     action_array.action_index,
     zau.id AS account_update_id,
@@ -40,7 +68,8 @@ action_rows AS (
         FILTER (WHERE field.field IS NOT NULL),
       ARRAY[]::text[]
     )::text[] AS data
-  FROM blocks b
+  FROM best_chain bc
+  JOIN blocks b ON b.id = bc.id
   JOIN blocks_zkapp_commands bzc ON bzc.block_id = b.id
   JOIN zkapp_commands zc ON zc.id = bzc.zkapp_command_id
   JOIN zkapp_fee_payer_body zfpb ON zfpb.id = zc.zkapp_fee_payer_body_id
@@ -60,11 +89,9 @@ action_rows AS (
   LEFT JOIN zkapp_field field ON field.id = action_field.field_id
   WHERE account_pk.value = $1::text
     AND b.height = $2::bigint
-    AND b.chain_status IN ('canonical', 'pending')
   GROUP BY
     b.id,
     b.height,
-    b.chain_status,
     bzc.sequence_no,
     action_array.action_index,
     zau.id,
@@ -82,12 +109,6 @@ deduped_action_rows AS (
     zkapp_command_id,
     account_update_id,
     action_index,
-    CASE chain_status
-      WHEN 'canonical' THEN 0
-      WHEN 'pending' THEN 1
-      ELSE 2
-    END,
-    height DESC,
     block_id DESC,
     sequence_no DESC
 )

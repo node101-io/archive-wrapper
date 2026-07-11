@@ -4,15 +4,23 @@
 
 package db
 
+import (
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
 type AccountIdentifier struct {
 	ID          int64
 	PublicKeyID int64
 }
 
 type Block struct {
-	ID          int64
-	Height      int64
-	ChainStatus string
+	ID                     int64
+	Height                 int64
+	ChainStatus            string
+	GlobalSlotSinceGenesis pgtype.Int8
+	ParentID               pgtype.Int8
+	ParentHash             pgtype.Text
+	StateHash              pgtype.Text
 }
 
 type BlocksZkappCommand struct {
