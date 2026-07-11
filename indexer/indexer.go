@@ -8,15 +8,20 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/node101-io/archive-wrapper/database"
 	fetchmina "github.com/node101-io/archive-wrapper/fetchmina"
 )
 
+type notificationConn interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	WaitForNotification(context.Context) (*pgconn.Notification, error)
+}
+
 type Indexer struct {
 	logger            *slog.Logger
-	conn              *pgx.Conn
+	conn              notificationConn
 	client            *fetchmina.MinaClient
 	db                *database.DbManager
 	confirmationDepth int64
@@ -33,7 +38,7 @@ const (
 )
 
 func NewIndexer(
-	conn *pgx.Conn,
+	conn notificationConn,
 	client *fetchmina.MinaClient,
 	db *database.DbManager,
 	startBlockHeight int64,

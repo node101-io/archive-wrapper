@@ -21,11 +21,11 @@ const (
 
 type MinaClient struct {
 	logger          *slog.Logger
-	queries         *sqlcdb.Queries
+	queries         sqlcdb.Querier
 	contractAddress string
 }
 
-func NewMinaClient(contractAddress string, queries *sqlcdb.Queries, logger *slog.Logger) (*MinaClient, error) {
+func NewMinaClient(contractAddress string, queries sqlcdb.Querier, logger *slog.Logger) (*MinaClient, error) {
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
 	}
