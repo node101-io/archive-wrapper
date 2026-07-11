@@ -2,6 +2,7 @@ package database
 
 import (
 	"errors"
+	"io"
 	"log/slog"
 	"testing"
 
@@ -15,7 +16,7 @@ const blockHeightDatabaseKey = "db-key"
 
 func TestDbManager_InsertThenGet(t *testing.T) {
 
-	logger := slog.Default()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
 
 	require.NoError(t, err)
@@ -57,7 +58,7 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 
 func TestDbManagerInsertBlockHeight(t *testing.T) {
 
-	logger := slog.Default()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	require.NotNil(t, logger)
 
 	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
@@ -89,7 +90,7 @@ func TestDbManagerInsertBlockHeight(t *testing.T) {
 }
 func TestDbManagerInsertBlockHeightRejectsRegression(t *testing.T) {
 
-	logger := slog.Default()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	require.NotNil(t, logger)
 
 	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)

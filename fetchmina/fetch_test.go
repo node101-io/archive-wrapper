@@ -2,6 +2,7 @@ package fetchmina
 
 import (
 	"errors"
+	"io"
 	"log/slog"
 	"testing"
 
@@ -15,7 +16,7 @@ const validAddress = "B62qjTpSX2R4fyqJrC9pzvm5PSZb5GMaYBXh8di3TBn6pPC9XXYFC9k"
 
 func TestNewMinaClientRejectsNilQueries(t *testing.T) {
 
-	logger := slog.Default()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	require.NotNil(t, logger)
 
 	client, err := NewMinaClient(validAddress, nil, logger)
@@ -27,7 +28,7 @@ func TestNewMinaClientRejectsNilQueries(t *testing.T) {
 
 func TestNewMinaClientRejectsInvalidContractAddress(t *testing.T) {
 
-	logger := slog.Default()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	require.NotNil(t, logger)
 
 	client, err := NewMinaClient("not-an-address", &sqlcdb.Queries{}, logger)

@@ -16,7 +16,7 @@ const blockHeightDatabaseKey = "db-key"
 
 func TestQuery(t *testing.T) {
 
-	logger := slog.Default()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	require.NotNil(t, logger)
 
 	manager, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
@@ -63,7 +63,7 @@ func TestQuery(t *testing.T) {
 
 func TestQuery_ProcessedEmptyBlockReturnsEmptyList(t *testing.T) {
 
-	logger := slog.Default()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	require.NotNil(t, logger)
 
 	manager, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
