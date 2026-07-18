@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	actions "github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
@@ -79,7 +80,11 @@ func TestRunReconcilesMissingHeightsFromNotificationAndSkipsDuplicateOrOutOfOrde
 	querier := &fakeQuerier{
 		conn:         conn,
 		latestHeight: 100,
-		rowsByHeight: map[int64][]sqlcdb.ListActionRowsRow{
+		blockIDsByHeight: map[int64]int64{
+			69: 690,
+			70: 700,
+		},
+		rowsByHeight: map[int64][]sqlcdb.ListActionRowsByBlockIDRow{
 			69: {validActionRow(69)},
 			70: {validActionRow(70)},
 		},
@@ -113,10 +118,14 @@ func TestRunReconcilesMissingHeightsFromNotificationAndSkipsDuplicateOrOutOfOrde
 
 	require.Equal(t, []string{"LISTEN blocks_inserted"}, conn.execStatements)
 	require.Equal(t, 3, conn.waitCalls)
+	require.Equal(t, []rangeRequest{
+		{startHeight: 69, endHeight: 70, waitCalls: 1},
+	}, querier.primedRanges)
 	require.Equal(t, []heightRequest{
 		{height: 69, waitCalls: 1},
 		{height: 70, waitCalls: 1},
-	}, querier.requestedHeights)
+	}, querier.requestedActionHeights)
+	require.Empty(t, querier.pointLookupHeights)
 
 	cursor, err := db.GetBlockHeight()
 	require.NoError(t, err)
@@ -129,7 +138,10 @@ func TestIndexAvailableBlocksDoesNotAdvanceCursorOnInvalidBlock(t *testing.T) {
 	conn := &fakeNotificationConn{}
 	querier := &fakeQuerier{
 		conn: conn,
-		rowsByHeight: map[int64][]sqlcdb.ListActionRowsRow{
+		blockIDsByHeight: map[int64]int64{
+			69: 690,
+		},
+		rowsByHeight: map[int64][]sqlcdb.ListActionRowsByBlockIDRow{
 			69: {validActionRow(70)},
 		},
 	}
@@ -197,11 +209,20 @@ type heightRequest struct {
 	waitCalls int
 }
 
+type rangeRequest struct {
+	startHeight int64
+	endHeight   int64
+	waitCalls   int
+}
+
 type fakeQuerier struct {
-	conn             *fakeNotificationConn
-	latestHeight     int64
-	requestedHeights []heightRequest
-	rowsByHeight     map[int64][]sqlcdb.ListActionRowsRow
+	conn                   *fakeNotificationConn
+	latestHeight           int64
+	blockIDsByHeight       map[int64]int64
+	primedRanges           []rangeRequest
+	requestedActionHeights []heightRequest
+	pointLookupHeights     []int64
+	rowsByHeight           map[int64][]sqlcdb.ListActionRowsByBlockIDRow
 }
 
 func (q *fakeQuerier) GetLatestBlockHeight(context.Context) (int64, error) {
@@ -212,13 +233,57 @@ func (q *fakeQuerier) GetLatestBlockHeight(context.Context) (int64, error) {
 	return q.latestHeight, nil
 }
 
-func (q *fakeQuerier) ListActionRows(_ context.Context, arg sqlcdb.ListActionRowsParams) ([]sqlcdb.ListActionRowsRow, error) {
-	q.requestedHeights = append(q.requestedHeights, heightRequest{
-		height:    arg.Height,
+func (q *fakeQuerier) GetBestChainBlockIDAtHeight(_ context.Context, height int64) (sqlcdb.GetBestChainBlockIDAtHeightRow, error) {
+	q.pointLookupHeights = append(q.pointLookupHeights, height)
+
+	blockID, ok := q.blockIDsByHeight[height]
+	if !ok {
+		return sqlcdb.GetBestChainBlockIDAtHeightRow{}, pgx.ErrNoRows
+	}
+
+	return sqlcdb.GetBestChainBlockIDAtHeightRow{
+		ID:     blockID,
+		Height: height,
+	}, nil
+}
+
+func (q *fakeQuerier) ListBestChainBlockIDsInRange(_ context.Context, arg sqlcdb.ListBestChainBlockIDsInRangeParams) ([]sqlcdb.ListBestChainBlockIDsInRangeRow, error) {
+	q.primedRanges = append(q.primedRanges, rangeRequest{
+		startHeight: arg.StartHeight,
+		endHeight:   arg.EndHeight,
+		waitCalls:   q.conn.waitCalls,
+	})
+
+	rows := make([]sqlcdb.ListBestChainBlockIDsInRangeRow, 0, arg.EndHeight-arg.StartHeight+1)
+	for height := arg.StartHeight; height <= arg.EndHeight; height++ {
+		blockID, ok := q.blockIDsByHeight[height]
+		if !ok {
+			continue
+		}
+		rows = append(rows, sqlcdb.ListBestChainBlockIDsInRangeRow{
+			ID:     blockID,
+			Height: height,
+		})
+	}
+
+	return rows, nil
+}
+
+func (q *fakeQuerier) ListActionRowsByBlockID(_ context.Context, arg sqlcdb.ListActionRowsByBlockIDParams) ([]sqlcdb.ListActionRowsByBlockIDRow, error) {
+	height := int64(0)
+	for candidateHeight, candidateBlockID := range q.blockIDsByHeight {
+		if candidateBlockID == arg.BlockID {
+			height = candidateHeight
+			break
+		}
+	}
+
+	q.requestedActionHeights = append(q.requestedActionHeights, heightRequest{
+		height:    height,
 		waitCalls: q.conn.waitCalls,
 	})
 
-	return q.rowsByHeight[arg.Height], nil
+	return q.rowsByHeight[height], nil
 }
 
 func mustNotification(t *testing.T, msg BlockNotification) *pgconn.Notification {
@@ -230,8 +295,8 @@ func mustNotification(t *testing.T, msg BlockNotification) *pgconn.Notification 
 	return &pgconn.Notification{Payload: string(payload)}
 }
 
-func validActionRow(height int64) sqlcdb.ListActionRowsRow {
-	return sqlcdb.ListActionRowsRow{
+func validActionRow(height int64) sqlcdb.ListActionRowsByBlockIDRow {
+	return sqlcdb.ListActionRowsByBlockIDRow{
 		Height:   height,
 		FeePayer: testContractAddress,
 		Data:     []string{"1", "ignored", "ignored", "42"},

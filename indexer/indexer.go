@@ -143,6 +143,10 @@ func (indexer *Indexer) syncTo(
 		return nil
 	}
 
+	if err := indexer.client.PrimeBestChainRange(ctx, cursor+1, target); err != nil {
+		return err
+	}
+
 	indexer.logger.InfoContext(ctx, "syncing block range", "from", cursor+1, "to", target)
 
 	for height := cursor + 1; height <= target; height++ {

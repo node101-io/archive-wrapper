@@ -2,11 +2,14 @@ package fetchmina
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 
 	cosmosErrors "cosmossdk.io/errors"
+	"github.com/jackc/pgx/v5"
 	actions "github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
@@ -23,6 +26,8 @@ type MinaClient struct {
 	logger          *slog.Logger
 	queries         sqlcdb.Querier
 	contractAddress string
+	cacheMu         sync.RWMutex
+	bestChainCache  map[int64]int64
 }
 
 func NewMinaClient(contractAddress string, queries sqlcdb.Querier, logger *slog.Logger) (*MinaClient, error) {
@@ -79,9 +84,18 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 		return nil, err
 	}
 
-	rows, err := c.queries.ListActionRows(ctx, sqlcdb.ListActionRowsParams{
+	blockID, err := c.bestChainBlockIDForHeight(ctx, blockHeight)
+	if err != nil {
+		return nil, err
+	}
+	if blockID == 0 {
+		c.logger.InfoContext(ctx, "no best-chain block found for height", "block_height", blockHeight)
+		return nil, nil
+	}
+
+	rows, err := c.queries.ListActionRowsByBlockID(ctx, sqlcdb.ListActionRowsByBlockIDParams{
+		BlockID:         blockID,
 		ContractAddress: c.contractAddress,
-		Height:          blockHeight,
 	})
 	if err != nil {
 		return nil, cosmosErrors.Wrap(err, "err at query archive actions")
@@ -119,6 +133,49 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 	return result, nil
 }
 
+func (c *MinaClient) PrimeBestChainRange(ctx context.Context, startHeight, endHeight int64) error {
+	if startHeight <= 0 {
+		return cosmosErrors.Wrap(apperrors.ErrInvalidBlockHeight, "start height must be greater than 0")
+	}
+	if endHeight < startHeight {
+		return nil
+	}
+
+	if err := c.validate(); err != nil {
+		return err
+	}
+
+	rows, err := c.queries.ListBestChainBlockIDsInRange(ctx, sqlcdb.ListBestChainBlockIDsInRangeParams{
+		StartHeight: startHeight,
+		EndHeight:   endHeight,
+	})
+	if err != nil {
+		return cosmosErrors.Wrap(err, "err at query best chain range")
+	}
+
+	blockIDs := make(map[int64]int64, len(rows))
+	for _, row := range rows {
+		blockIDs[row.Height] = row.ID
+	}
+
+	c.cacheMu.Lock()
+	c.bestChainCache = blockIDs
+	c.cacheMu.Unlock()
+
+	c.logger.InfoContext(
+		ctx,
+		"primed best chain range",
+		"start_height",
+		startHeight,
+		"end_height",
+		endHeight,
+		"blocks",
+		len(blockIDs),
+	)
+
+	return nil
+}
+
 func (c *MinaClient) validate() error {
 	if c == nil || c.queries == nil {
 		return apperrors.ErrNilMinaClient
@@ -133,6 +190,32 @@ func (c *MinaClient) validate() error {
 	}
 
 	return nil
+}
+
+func (c *MinaClient) bestChainBlockIDForHeight(ctx context.Context, blockHeight int64) (int64, error) {
+	c.cacheMu.RLock()
+	blockID, ok := c.bestChainCache[blockHeight]
+	c.cacheMu.RUnlock()
+	if ok {
+		return blockID, nil
+	}
+
+	row, err := c.queries.GetBestChainBlockIDAtHeight(ctx, blockHeight)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, cosmosErrors.Wrap(err, "err at query best chain block id")
+	}
+
+	c.cacheMu.Lock()
+	if c.bestChainCache == nil {
+		c.bestChainCache = make(map[int64]int64)
+	}
+	c.bestChainCache[blockHeight] = row.ID
+	c.cacheMu.Unlock()
+
+	return row.ID, nil
 }
 
 func actionFromRawData(blockHeight int64, feePayer string, data []string) (*actions.Action, error) {

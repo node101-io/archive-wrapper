@@ -9,8 +9,10 @@ import (
 )
 
 type Querier interface {
+	GetBestChainBlockIDAtHeight(ctx context.Context, height int64) (GetBestChainBlockIDAtHeightRow, error)
 	GetLatestBlockHeight(ctx context.Context) (int64, error)
-	ListActionRows(ctx context.Context, arg ListActionRowsParams) ([]ListActionRowsRow, error)
+	ListActionRowsByBlockID(ctx context.Context, arg ListActionRowsByBlockIDParams) ([]ListActionRowsByBlockIDRow, error)
+	ListBestChainBlockIDsInRange(ctx context.Context, arg ListBestChainBlockIDsInRangeParams) ([]ListBestChainBlockIDsInRangeRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

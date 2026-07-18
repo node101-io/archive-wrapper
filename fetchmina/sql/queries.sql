@@ -3,7 +3,7 @@ SELECT COALESCE(MAX(height), 0)::bigint
 FROM blocks
 WHERE chain_status = 'pending';
 
--- name: ListActionRows :many
+-- name: GetBestChainBlockIDAtHeight :one
 WITH RECURSIVE
 pending_tip AS (
   SELECT
@@ -33,8 +33,52 @@ best_chain AS (
   SELECT b.id, b.parent_id, b.height::bigint
   FROM blocks b
   JOIN best_chain bc ON bc.parent_id = b.id
+  WHERE bc.height > sqlc.arg(height)::bigint
+)
+SELECT id, height
+FROM best_chain
+WHERE height = sqlc.arg(height)::bigint
+LIMIT 1;
+
+-- name: ListBestChainBlockIDsInRange :many
+WITH RECURSIVE
+pending_tip AS (
+  SELECT
+    b.id,
+    b.parent_id,
+    b.height::bigint AS height
+  FROM blocks b
+  WHERE b.chain_status = 'pending'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM blocks child
+      WHERE child.parent_id = b.id
+        AND child.chain_status = 'pending'
+    )
+  ORDER BY
+    b.height DESC,
+    COALESCE(b.global_slot_since_genesis, 0) DESC,
+    b.id DESC
+  LIMIT 1
 ),
-action_rows AS (
+best_chain AS (
+  SELECT id, parent_id, height
+  FROM pending_tip
+
+  UNION ALL
+
+  SELECT b.id, b.parent_id, b.height::bigint
+  FROM blocks b
+  JOIN best_chain bc ON bc.parent_id = b.id
+  WHERE bc.height > sqlc.arg(start_height)::bigint
+)
+SELECT id, height
+FROM best_chain
+WHERE height BETWEEN sqlc.arg(start_height)::bigint AND sqlc.arg(end_height)::bigint
+ORDER BY height;
+
+-- name: ListActionRowsByBlockID :many
+WITH action_rows AS (
   SELECT
     b.id AS block_id,
     b.height::bigint AS height,
@@ -49,8 +93,7 @@ action_rows AS (
         FILTER (WHERE field.field IS NOT NULL),
       ARRAY[]::text[]
     )::text[] AS data
-  FROM best_chain bc
-  JOIN blocks b ON b.id = bc.id
+  FROM blocks b
   JOIN blocks_zkapp_commands bzc ON bzc.block_id = b.id
   JOIN zkapp_commands zc ON zc.id = bzc.zkapp_command_id
   JOIN zkapp_fee_payer_body zfpb ON zfpb.id = zc.zkapp_fee_payer_body_id
@@ -69,7 +112,7 @@ action_rows AS (
     WITH ORDINALITY AS action_field(field_id, field_index) ON true
   LEFT JOIN zkapp_field field ON field.id = action_field.field_id
   WHERE account_pk.value = sqlc.arg(contract_address)::text
-    AND b.height = sqlc.arg(height)::bigint
+    AND b.id = sqlc.arg(block_id)::bigint
   GROUP BY
     b.id,
     b.height,
