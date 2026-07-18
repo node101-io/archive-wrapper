@@ -5,7 +5,6 @@ GO_BUILD_TAGS := purego
 export GOCACHE := $(CURDIR)/.cache/go-build
 export GOLANGCI_LINT_CACHE := $(CURDIR)/.cache/golangci-lint
 CONFIG ?= config.yaml
-SOCKET_PATH ?= $(or $(ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH),/tmp/archive-wrapper-mainnet.sock)
 
 .PHONY: ensure-cache fmt test lint build start stop
 
@@ -30,5 +29,4 @@ start: build
 	./archive-wrapper start --config $(CONFIG) --start-block-height $(START_BLOCK_HEIGHT)
 
 stop:
-	@test -n "$(SOCKET_PATH)" || (echo "usage: make stop [SOCKET_PATH=/tmp/archive-wrapper-mainnet.sock]" && exit 1)
-	./archive-wrapper stop --socket-path $(SOCKET_PATH)
+	./archive-wrapper stop --config $(CONFIG) $(if $(SOCKET_PATH),--socket-path $(SOCKET_PATH),)

@@ -82,10 +82,16 @@ func run(args []string, ctx context.Context,
 	case "stop":
 		stopCmd := flag.NewFlagSet("stop", flag.ContinueOnError)
 
-		defaultSocketPath := os.Getenv("ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH")
+		defaultConfigPath := os.Getenv("ARCHIVE_WRAPPER_CONFIG")
+		configPath := stopCmd.String(
+			"config",
+			defaultConfigPath,
+			"path to configuration file",
+		)
+
 		socketPath := stopCmd.String(
 			"socket-path",
-			defaultSocketPath,
+			"",
 			"path to control socket",
 		)
 
@@ -93,13 +99,24 @@ func run(args []string, ctx context.Context,
 			return err
 		}
 
-		if strings.TrimSpace(*socketPath) == "" {
-			return fmt.Errorf("--socket-path is required unless ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH is set")
+		resolvedSocketPath, err := resolveStopSocketPath(
+			*socketPath,
+			*configPath,
+			os.Getenv("ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH"),
+		)
+		if err != nil {
+			return err
 		}
 
-		cliLogger.Info("stop command received", "socket_path", *socketPath)
+		cliLogger.Info(
+			"stop command received",
+			"config",
+			strings.TrimSpace(*configPath),
+			"socket_path",
+			resolvedSocketPath,
+		)
 
-		return runStop(*socketPath, logger)
+		return runStop(resolvedSocketPath, logger)
 
 	case "help", "-h", "--help":
 		fmt.Print(usage())
@@ -274,6 +291,32 @@ func runStop(sockPath string, logger *slog.Logger) (retErr error) {
 
 	return
 }
+
+func resolveStopSocketPath(socketPath, configPath, envSocketPath string) (string, error) {
+	socketPath = strings.TrimSpace(socketPath)
+	if socketPath != "" {
+		return socketPath, nil
+	}
+
+	configPath = strings.TrimSpace(configPath)
+	if configPath != "" {
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			return "", fmt.Errorf("load stop config: %w", err)
+		}
+		return cfg.ControlSocketPath, nil
+	}
+
+	envSocketPath = strings.TrimSpace(envSocketPath)
+	if envSocketPath != "" {
+		return envSocketPath, nil
+	}
+
+	return "", fmt.Errorf(
+		"--config or --socket-path is required unless ARCHIVE_WRAPPER_CONFIG or ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH is set",
+	)
+}
+
 func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slog.Logger) (net.Listener, error) {
 	controlLogger := logger.With("component", "control_socket")
 
@@ -344,6 +387,6 @@ func prepareControlSocket(sockPath string, logger *slog.Logger) error {
 func usage() string {
 	return `usage:
   archive-wrapper start --config <path> --start-block-height <height>
-  archive-wrapper stop --socket-path <path>
+  archive-wrapper stop [--config <path>] [--socket-path <path>]
 `
 }
