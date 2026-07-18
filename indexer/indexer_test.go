@@ -64,11 +64,13 @@ func TestWithRetryReturnsContextErrorWhenCanceled(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, context.Canceled))
 }
-func TestRunRegistersListenBeforeInitialSyncAndSkipsDuplicateNotifications(t *testing.T) {
+
+func TestRunReconcilesMissingHeightsFromNotificationAndSkipsDuplicateOrOutOfOrderNotifications(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	conn := &fakeNotificationConn{
 		notifications: []*pgconn.Notification{
+			mustNotification(t, BlockNotification{Height: 102}),
 			mustNotification(t, BlockNotification{Height: 102}),
 			mustNotification(t, BlockNotification{Height: 101}),
 		},
@@ -76,7 +78,60 @@ func TestRunRegistersListenBeforeInitialSyncAndSkipsDuplicateNotifications(t *te
 
 	querier := &fakeQuerier{
 		conn:         conn,
-		latestHeight: 102,
+		latestHeight: 100,
+		rowsByHeight: map[int64][]sqlcdb.ListActionRowsRow{
+			69: {validActionRow(69)},
+			70: {validActionRow(70)},
+		},
+	}
+
+	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
+	require.NoError(t, err)
+
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	require.NoError(t, db.InsertBlockHeight(68))
+
+	conn.beforeWait = func(waitCalls int) {
+		if waitCalls != 0 {
+			return
+		}
+
+		cursor, err := db.GetBlockHeight()
+		require.NoError(t, err)
+		require.Equal(t, int64(68), cursor)
+	}
+
+	indexer, err := NewIndexer(conn, client, db, 10, 32, logger)
+	require.NoError(t, err)
+
+	require.NoError(t, indexer.Run(context.Background()))
+
+	require.Equal(t, []string{"LISTEN blocks_inserted"}, conn.execStatements)
+	require.Equal(t, 3, conn.waitCalls)
+	require.Equal(t, []heightRequest{
+		{height: 69, waitCalls: 1},
+		{height: 70, waitCalls: 1},
+	}, querier.requestedHeights)
+
+	cursor, err := db.GetBlockHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(70), cursor)
+}
+
+func TestIndexAvailableBlocksDoesNotAdvanceCursorOnInvalidBlock(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	conn := &fakeNotificationConn{}
+	querier := &fakeQuerier{
+		conn: conn,
+		rowsByHeight: map[int64][]sqlcdb.ListActionRowsRow{
+			69: {validActionRow(70)},
+		},
 	}
 
 	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
@@ -93,14 +148,16 @@ func TestRunRegistersListenBeforeInitialSyncAndSkipsDuplicateNotifications(t *te
 	indexer, err := NewIndexer(conn, client, db, 10, 32, logger)
 	require.NoError(t, err)
 
-	require.NoError(t, indexer.Run(context.Background()))
-
-	require.Equal(t, []string{"LISTEN blocks_inserted"}, conn.execStatements)
-	require.Equal(t, []int64{69, 70}, querier.requestedHeights)
+	err = indexer.indexAvailableBlocks(context.Background(), 69)
+	require.ErrorIs(t, err, apperrors.ErrInvalidBlockHeight)
 
 	cursor, err := db.GetBlockHeight()
 	require.NoError(t, err)
-	require.Equal(t, int64(70), cursor)
+	require.Equal(t, int64(68), cursor)
+
+	hasRecord, err := db.Has(69)
+	require.NoError(t, err)
+	require.False(t, hasRecord)
 }
 
 type fakeNotificationConn struct {
@@ -108,6 +165,7 @@ type fakeNotificationConn struct {
 	notifications  []*pgconn.Notification
 	waitCalls      int
 	listenReady    bool
+	beforeWait     func(waitCalls int)
 }
 
 func (c *fakeNotificationConn) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
@@ -120,6 +178,10 @@ func (c *fakeNotificationConn) Exec(_ context.Context, sql string, _ ...any) (pg
 }
 
 func (c *fakeNotificationConn) WaitForNotification(_ context.Context) (*pgconn.Notification, error) {
+	if c.beforeWait != nil {
+		c.beforeWait(c.waitCalls)
+	}
+
 	if c.waitCalls >= len(c.notifications) {
 		return nil, context.Canceled
 	}
@@ -130,10 +192,16 @@ func (c *fakeNotificationConn) WaitForNotification(_ context.Context) (*pgconn.N
 	return notification, nil
 }
 
+type heightRequest struct {
+	height    int64
+	waitCalls int
+}
+
 type fakeQuerier struct {
 	conn             *fakeNotificationConn
 	latestHeight     int64
-	requestedHeights []int64
+	requestedHeights []heightRequest
+	rowsByHeight     map[int64][]sqlcdb.ListActionRowsRow
 }
 
 func (q *fakeQuerier) GetLatestBlockHeight(context.Context) (int64, error) {
@@ -145,8 +213,12 @@ func (q *fakeQuerier) GetLatestBlockHeight(context.Context) (int64, error) {
 }
 
 func (q *fakeQuerier) ListActionRows(_ context.Context, arg sqlcdb.ListActionRowsParams) ([]sqlcdb.ListActionRowsRow, error) {
-	q.requestedHeights = append(q.requestedHeights, arg.Height)
-	return nil, nil
+	q.requestedHeights = append(q.requestedHeights, heightRequest{
+		height:    arg.Height,
+		waitCalls: q.conn.waitCalls,
+	})
+
+	return q.rowsByHeight[arg.Height], nil
 }
 
 func mustNotification(t *testing.T, msg BlockNotification) *pgconn.Notification {
@@ -156,4 +228,12 @@ func mustNotification(t *testing.T, msg BlockNotification) *pgconn.Notification 
 	require.NoError(t, err)
 
 	return &pgconn.Notification{Payload: string(payload)}
+}
+
+func validActionRow(height int64) sqlcdb.ListActionRowsRow {
+	return sqlcdb.ListActionRowsRow{
+		Height:   height,
+		FeePayer: testContractAddress,
+		Data:     []string{"1", "ignored", "ignored", "42"},
+	}
 }
