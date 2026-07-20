@@ -114,6 +114,33 @@ func TestFetchActionsFallsBackToPointLookupOncePerHeight(t *testing.T) {
 	require.Equal(t, []int64{900, 900}, querier.actionBlockIDs)
 }
 
+func TestFetchActionsPreservesQuerierRowOrderWithinBlock(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	querier := &trackingQuerier{
+		bestChainBlockIDsByHeight: map[int64]int64{
+			90: 900,
+		},
+		actionRowsByBlockID: map[int64][]sqlcdb.ListActionRowsByBlockIDRow{
+			900: {
+				actionQueryRow(90, "1", "7"),
+				actionQueryRow(90, "2", "42"),
+			},
+		},
+	}
+
+	client, err := NewMinaClient(validAddress, querier, logger)
+	require.NoError(t, err)
+
+	got, err := client.FetchActions(context.Background(), 90)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	require.Equal(t, int64(7), got[0].Amount)
+	require.Equal(t, actions.ActionType_DEPOSIT, got[0].ActionType)
+	require.Equal(t, int64(42), got[1].Amount)
+	require.Equal(t, actions.ActionType_WITHDRAW, got[1].ActionType)
+}
+
 type rangeKey struct {
 	startHeight int64
 	endHeight   int64
@@ -158,9 +185,13 @@ func (q *trackingQuerier) ListActionRowsByBlockID(_ context.Context, arg sqlcdb.
 }
 
 func validActionQueryRow(height int64) sqlcdb.ListActionRowsByBlockIDRow {
+	return actionQueryRow(height, "1", "42")
+}
+
+func actionQueryRow(height int64, actionType string, amount string) sqlcdb.ListActionRowsByBlockIDRow {
 	return sqlcdb.ListActionRowsByBlockIDRow{
 		Height:   height,
 		FeePayer: validAddress,
-		Data:     []string{"1", "ignored", "ignored", "42"},
+		Data:     []string{actionType, "ignored", "ignored", amount},
 	}
 }

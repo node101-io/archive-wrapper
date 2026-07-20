@@ -83,6 +83,7 @@ WITH action_rows AS (
     b.id AS block_id,
     b.height::bigint AS height,
     bzc.sequence_no,
+    command_update.account_update_index,
     action_array.action_index,
     zau.id AS account_update_id,
     zc.id AS zkapp_command_id,
@@ -117,6 +118,7 @@ WITH action_rows AS (
     b.id,
     b.height,
     bzc.sequence_no,
+    command_update.account_update_index,
     action_array.action_index,
     zau.id,
     zc.id,
@@ -126,6 +128,11 @@ WITH action_rows AS (
 deduped_action_rows AS (
   SELECT DISTINCT ON (zkapp_command_id, account_update_id, action_index)
     height,
+    sequence_no,
+    account_update_index,
+    action_index,
+    zkapp_command_id,
+    account_update_id,
     fee_payer,
     data
   FROM action_rows
@@ -138,4 +145,10 @@ deduped_action_rows AS (
 )
 SELECT height, fee_payer, data
 FROM deduped_action_rows
-ORDER BY height, fee_payer;
+ORDER BY
+  height,
+  sequence_no,
+  account_update_index,
+  action_index,
+  zkapp_command_id,
+  account_update_id;
