@@ -15,7 +15,6 @@ import (
 const blockHeightDatabaseKey = "db-key"
 
 func TestQuery(t *testing.T) {
-
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	require.NotNil(t, logger)
 
@@ -38,31 +37,49 @@ func TestQuery(t *testing.T) {
 			},
 		},
 	}
+	second := actions.DbRecord{
+		Key: 9,
+		Actions: []*actions.Action{
+			{
+				BlockHeight: 9,
+				FeePayer:    []byte("bob"),
+				ActionType:  actions.ActionType_WITHDRAW,
+				Amount:      7,
+			},
+		},
+	}
 
 	err = manager.Insert(want)
 	require.NoError(t, err)
+	err = manager.Insert(second)
+	require.NoError(t, err)
 
-	err = manager.InsertBlockHeight(want.Key)
+	err = manager.InsertBlockHeight(second.Key)
 	require.NoError(t, err)
 
 	q, err := NewQuery(manager, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	require.NoError(t, err)
-	got, err := q.ActionsByBlockHeight(context.Background(), &QueryActionsByBlockHeightRequest{
-		BlockHeight: 7,
+	got, err := q.GetActionsInRange(context.Background(), &QueryGetActionsInRangeRequest{
+		StartBlockHeight: 7,
+		EndBlockHeight:   9,
 	})
 
 	require.NoError(t, err)
 	require.NotNil(t, got)
+	require.Len(t, got.Actions, 2)
 
-	// Ensure they have the same values
-	require.Equal(t, got.Actions[0].BlockHeight, want.Actions[0].BlockHeight)
-	require.Equal(t, got.Actions[0].FeePayer, want.Actions[0].FeePayer)
-	require.Equal(t, got.Actions[0].ActionType, want.Actions[0].ActionType)
-	require.Equal(t, got.Actions[0].Amount, want.Actions[0].Amount)
+	require.Equal(t, want.Actions[0].BlockHeight, got.Actions[0].BlockHeight)
+	require.Equal(t, want.Actions[0].FeePayer, got.Actions[0].FeePayer)
+	require.Equal(t, want.Actions[0].ActionType, got.Actions[0].ActionType)
+	require.Equal(t, want.Actions[0].Amount, got.Actions[0].Amount)
+
+	require.Equal(t, second.Actions[0].BlockHeight, got.Actions[1].BlockHeight)
+	require.Equal(t, second.Actions[0].FeePayer, got.Actions[1].FeePayer)
+	require.Equal(t, second.Actions[0].ActionType, got.Actions[1].ActionType)
+	require.Equal(t, second.Actions[0].Amount, got.Actions[1].Amount)
 }
 
 func TestQuery_ProcessedEmptyBlockReturnsEmptyList(t *testing.T) {
-
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	require.NotNil(t, logger)
 
@@ -80,8 +97,9 @@ func TestQuery_ProcessedEmptyBlockReturnsEmptyList(t *testing.T) {
 	q, err := NewQuery(manager, logger)
 	require.NoError(t, err)
 
-	got, err := q.ActionsByBlockHeight(context.Background(), &QueryActionsByBlockHeightRequest{
-		BlockHeight: 7,
+	got, err := q.GetActionsInRange(context.Background(), &QueryGetActionsInRangeRequest{
+		StartBlockHeight: 7,
+		EndBlockHeight:   7,
 	})
 
 	require.NoError(t, err)

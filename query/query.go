@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	actions "github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/node101-io/archive-wrapper/database"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -39,10 +40,10 @@ func NewQuery(db *database.DbManager, logger *slog.Logger) (*Query, error) {
 	}, nil
 }
 
-func (q *Query) ActionsByBlockHeight(
+func (q *Query) GetActionsInRange(
 	ctx context.Context,
-	in *QueryActionsByBlockHeightRequest,
-) (*QueryActionsByBlockHeightResponse, error) {
+	in *QueryGetActionsInRangeRequest,
+) (*QueryGetActionsInRangeResponse, error) {
 	if q == nil {
 		return nil, status.Error(
 			codes.FailedPrecondition,
@@ -71,22 +72,29 @@ func (q *Query) ActionsByBlockHeight(
 		)
 	}
 
-	if in.BlockHeight <= 0 {
+	if in.StartBlockHeight <= 0 {
 		return nil, status.Error(
 			codes.InvalidArgument,
-			"block height must be greater than 0",
+			"start block height must be greater than 0",
 		)
 	}
 
-	// The latest processed cursor tells us whether this height is queryable yet.
-	latestHeight, err := q.db.GetBlockHeight()
-	if errors.Is(err, leveldb.ErrNotFound) {
-		q.logger.WarnContext(ctx, "query requested before any block was processed")
+	if in.EndBlockHeight <= 0 {
 		return nil, status.Error(
-			codes.FailedPrecondition,
-			"indexer has not processed any blocks yet",
+			codes.InvalidArgument,
+			"end block height must be greater than 0",
 		)
 	}
+
+	if in.StartBlockHeight > in.EndBlockHeight {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"start block height must be less than or equal to end block height",
+		)
+	}
+
+	// The latest processed cursor tells us whether this range is queryable yet.
+	latestHeight, err := q.db.GetBlockHeight()
 	if err != nil {
 		q.logger.ErrorContext(ctx, "failed to read latest processed block height", "err", err)
 		return nil, status.Error(
@@ -95,74 +103,56 @@ func (q *Query) ActionsByBlockHeight(
 		)
 	}
 
-	if in.BlockHeight > latestHeight {
+	if in.EndBlockHeight > latestHeight {
 		q.logger.WarnContext(
 			ctx,
-			"query requested block above latest processed height",
-			"block_height",
-			in.BlockHeight,
+			"query requested range above latest processed height",
+			"start_block_height",
+			in.StartBlockHeight,
+			"end_block_height",
+			in.EndBlockHeight,
 			"latest_processed_height",
 			latestHeight,
 		)
 		return nil, status.Errorf(
 			codes.FailedPrecondition,
-			"block height %d is higher than latest processed block %d",
-			in.BlockHeight,
+			"end block height %d is higher than latest processed block %d",
+			in.EndBlockHeight,
 			latestHeight,
 		)
 	}
 
-	exists, err := q.db.Has(in.BlockHeight)
-	if err != nil {
-		q.logger.ErrorContext(ctx, "failed to check block actions", "block_height", in.BlockHeight, "err", err)
-		return nil, status.Error(
-			codes.Internal,
-			"failed to check block actions",
-		)
-	}
-	// Inside the processed range, a missing record is treated as an empty block.
-	if !exists {
-		q.logger.InfoContext(
-			ctx,
-			"query returned empty block",
-			"block_height",
-			in.BlockHeight,
-			"latest_processed_height",
-			latestHeight,
-		)
-		return &QueryActionsByBlockHeightResponse{}, nil
-	}
+	result := make([]*actions.Action, 0)
 
-	record, err := q.db.Get(in.BlockHeight)
-	if errors.Is(err, leveldb.ErrNotFound) {
-		q.logger.InfoContext(
-			ctx,
-			"query returned empty block",
-			"block_height",
-			in.BlockHeight,
-			"latest_processed_height",
-			latestHeight,
-		)
-		return &QueryActionsByBlockHeightResponse{}, nil
-	}
-	if err != nil {
-		q.logger.ErrorContext(ctx, "failed to read block actions", "block_height", in.BlockHeight, "err", err)
-		return nil, status.Error(
-			codes.Internal,
-			"failed to read block actions",
-		)
+	for height := in.StartBlockHeight; height <= in.EndBlockHeight; height++ {
+		record, err := q.db.Get(height)
+		if errors.Is(err, leveldb.ErrNotFound) {
+			// Inside the processed range, a missing record is treated as an empty block.
+			continue
+		}
+		if err != nil {
+			q.logger.ErrorContext(ctx, "failed to read block actions", "block_height", height, "err", err)
+			return nil, status.Error(
+				codes.Internal,
+				"failed to read block actions",
+			)
+		}
+
+		result = append(result, record.Actions...)
 	}
 
 	q.logger.InfoContext(
 		ctx,
-		"query returned actions",
-		"block_height",
-		in.BlockHeight,
+		"query returned actions in range",
+		"start_block_height",
+		in.StartBlockHeight,
+		"end_block_height",
+		in.EndBlockHeight,
 		"actions",
-		len(record.Actions),
+		len(result),
 	)
 
-	return &QueryActionsByBlockHeightResponse{
-		Actions: record.Actions,
+	return &QueryGetActionsInRangeResponse{
+		Actions: result,
 	}, nil
 }
