@@ -51,6 +51,11 @@ func run(args []string, ctx context.Context,
 			defaultConfigPath,
 			"path to configuration file",
 		)
+		homePath := startCmd.String(
+			"home",
+			"",
+			"path to chain home directory",
+		)
 
 		if err := startCmd.Parse(args[1:]); err != nil {
 			return err
@@ -63,11 +68,16 @@ func run(args []string, ctx context.Context,
 		if *startBlockHeight <= 0 {
 			return fmt.Errorf("--start-block-height is required and must be greater than 0")
 		}
+		if strings.TrimSpace(*homePath) == "" {
+			return fmt.Errorf("--home is required")
+		}
 
 		cliLogger.Info(
 			"start command received",
 			"config",
 			*configPath,
+			"home",
+			*homePath,
 			"start_block_height",
 			*startBlockHeight,
 		)
@@ -77,7 +87,12 @@ func run(args []string, ctx context.Context,
 			return err
 		}
 
-		return runStart(ctx, cfg, *startBlockHeight, cancel, logger)
+		confirmationDepth, err := LoadConfirmationDepthFromHome(*homePath)
+		if err != nil {
+			return fmt.Errorf("load chain confirmation depth: %w", err)
+		}
+
+		return runStart(ctx, cfg, *startBlockHeight, confirmationDepth, cancel, logger)
 
 	case "stop":
 		stopCmd := flag.NewFlagSet("stop", flag.ContinueOnError)
@@ -126,7 +141,7 @@ func run(args []string, ctx context.Context,
 	}
 }
 func runStart(ctx context.Context, cfg config.Config,
-	startBlockHeight int64, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
+	startBlockHeight int64, confirmationDepth int64, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
 	runtimeLogger := logger.With("component", "runtime")
 
 	runtimeLogger.Info(
@@ -137,6 +152,8 @@ func runStart(ctx context.Context, cfg config.Config,
 		cfg.GRPCListenAddress,
 		"control_socket_path",
 		cfg.ControlSocketPath,
+		"confirmation_depth",
+		confirmationDepth,
 		"db_path",
 		cfg.DBPath,
 	)
@@ -204,7 +221,7 @@ func runStart(ctx context.Context, cfg config.Config,
 		client,
 		db,
 		startBlockHeight,
-		cfg.ConfirmationDepth,
+		confirmationDepth,
 		logger,
 	)
 	if err != nil {
@@ -386,7 +403,7 @@ func prepareControlSocket(sockPath string, logger *slog.Logger) error {
 
 func usage() string {
 	return `usage:
-  archive-wrapper start --config <path> --start-block-height <height>
+  archive-wrapper start --config <path> --home <path> --start-block-height <height>
   archive-wrapper stop [--config <path>] [--socket-path <path>]
 `
 }

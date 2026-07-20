@@ -12,7 +12,6 @@ type Config struct {
 	ContractAddress        string `mapstructure:"contract_address"`
 	BlockHeightDatabaseKey string `mapstructure:"block_height_database_key"`
 	DBPath                 string `mapstructure:"db_path"`
-	ConfirmationDepth      int64  `mapstructure:"confirmation_depth"`
 	GRPCListenAddress      string `mapstructure:"grpc_listen_address"`
 	ControlSocketPath      string `mapstructure:"control_socket_path"`
 }
@@ -50,9 +49,6 @@ func Load(configFile string) (Config, error) {
 	}
 	if cfg.ControlSocketPath == "" {
 		return Config{}, apperrors.ErrControlSocketPathRequired
-	}
-	if cfg.ConfirmationDepth <= 0 {
-		return Config{}, apperrors.ErrConfirmationDepthRequired
 	}
 
 	return cfg, nil
