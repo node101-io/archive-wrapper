@@ -9,6 +9,7 @@ option go_package = "github.com/node101-io/archive-wrapper/query;query";
 
 service Query {
   rpc ActionsByBlockHeight(QueryActionsByBlockHeightRequest) returns (QueryActionsByBlockHeightResponse);
+  rpc GetMinaBlockHeight(QueryGetMinaBlockHeightRequest) returns (QueryGetMinaBlockHeightResponse);
 }
 
 message QueryActionsByBlockHeightRequest {
@@ -21,4 +22,14 @@ message QueryActionsByBlockHeightResponse {
   option (gogoproto.goproto_getters) = false;
 
   repeated actions.Action actions = 1;
+}
+
+message QueryGetMinaBlockHeightRequest {
+  option (gogoproto.goproto_getters) = false;
+}
+
+message QueryGetMinaBlockHeightResponse {
+  option (gogoproto.goproto_getters) = false;
+
+  int64 block_height = 1;
 }
