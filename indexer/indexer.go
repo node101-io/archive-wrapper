@@ -174,7 +174,7 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 		ctx,
 		"LISTEN blocks_inserted",
 	); err != nil {
-		return err
+		return fmt.Errorf("%w: listen blocks_inserted: %w", apperrors.ErrNotificationConnectionLost, err)
 	}
 	indexer.logger.InfoContext(ctx, "LISTEN blocks_inserted registered")
 
@@ -192,7 +192,7 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 				indexer.logger.InfoContext(ctx, "indexer shutting down")
 				return nil
 			}
-			return fmt.Errorf("wait for notification: %w", err)
+			return fmt.Errorf("%w: wait for notification: %w", apperrors.ErrNotificationConnectionLost, err)
 		}
 
 		var msg BlockNotification

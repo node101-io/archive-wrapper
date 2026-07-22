@@ -26,6 +26,7 @@ import (
 )
 
 const network = "unix"
+const notificationReconnectDelay = 2 * time.Second
 
 func run(args []string, ctx context.Context,
 	cancel context.CancelFunc, logger *slog.Logger) error {
@@ -179,17 +180,6 @@ func runStart(ctx context.Context, cfg config.Config,
 
 	runtimeLogger.Info("connecting to postgres")
 
-	notificationConn, err := pgx.Connect(ctx, postgresURI)
-	if err != nil {
-		return err
-	}
-	runtimeLogger.Info("postgres notification connection ready")
-	defer func() {
-		if err := notificationConn.Close(context.Background()); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("close notification connection: %w", err))
-		}
-	}()
-
 	queryPool, err := pgxpool.New(ctx, postgresURI)
 	if err != nil {
 		return err
@@ -216,18 +206,6 @@ func runStart(ctx context.Context, cfg config.Config,
 		}
 	}()
 
-	indexer, err := indexer.NewIndexer(
-		notificationConn,
-		client,
-		db,
-		startBlockHeight,
-		confirmationDepth,
-		logger,
-	)
-	if err != nil {
-		return err
-	}
-
 	grpcListener, err := net.Listen("tcp", cfg.GRPCListenAddress)
 	if err != nil {
 		return fmt.Errorf("listen gRPC: %w", err)
@@ -250,7 +228,15 @@ func runStart(ctx context.Context, cfg config.Config,
 	group.Go(func() error {
 		runtimeLogger.Info("starting indexer run loop")
 
-		err := indexer.Run(runCtx)
+		err := runIndexerWithReconnect(
+			runCtx,
+			postgresURI,
+			client,
+			db,
+			startBlockHeight,
+			confirmationDepth,
+			logger,
+		)
 		if err != nil {
 			runtimeLogger.Error("indexer run loop stopped with error", "err", err)
 			return err
@@ -287,6 +273,90 @@ func runStart(ctx context.Context, cfg config.Config,
 	}
 
 	return
+}
+
+func runIndexerWithReconnect(
+	ctx context.Context,
+	postgresURI string,
+	client *fetchmina.MinaClient,
+	db *database.DbManager,
+	startBlockHeight int64,
+	confirmationDepth int64,
+	logger *slog.Logger,
+) error {
+	runtimeLogger := logger.With("component", "runtime")
+
+	for {
+		err := runIndexerOnce(
+			ctx,
+			postgresURI,
+			client,
+			db,
+			startBlockHeight,
+			confirmationDepth,
+			logger,
+			runtimeLogger,
+		)
+
+		if err == nil || errors.Is(err, context.Canceled) {
+			return err
+		}
+
+		if !errors.Is(err, apperrors.ErrNotificationConnectionLost) {
+			return err
+		}
+
+		runtimeLogger.Warn("notification connection lost, reconnecting", "retry_delay", notificationReconnectDelay, "err", err)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(notificationReconnectDelay):
+		}
+	}
+}
+
+func runIndexerOnce(
+	ctx context.Context,
+	postgresURI string,
+	client *fetchmina.MinaClient,
+	db *database.DbManager,
+	startBlockHeight int64,
+	confirmationDepth int64,
+	logger *slog.Logger,
+	runtimeLogger *slog.Logger,
+) error {
+	runtimeLogger.Info("connecting postgres notification connection")
+
+	notificationConn, err := pgx.Connect(ctx, postgresURI)
+	if err != nil {
+		return fmt.Errorf("%w: connect notification connection: %w", apperrors.ErrNotificationConnectionLost, err)
+	}
+	runtimeLogger.Info("postgres notification connection ready")
+	defer closeNotificationConn(ctx, notificationConn, runtimeLogger)
+
+	idx, err := indexer.NewIndexer(
+		notificationConn,
+		client,
+		db,
+		startBlockHeight,
+		confirmationDepth,
+		logger,
+	)
+	if err != nil {
+		return err
+	}
+
+	return idx.Run(ctx)
+}
+
+func closeNotificationConn(ctx context.Context, conn *pgx.Conn, logger *slog.Logger) {
+	closeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	if err := conn.Close(closeCtx); err != nil {
+		logger.Warn("close notification connection failed", "err", err)
+	}
 }
 
 func runStop(sockPath string, logger *slog.Logger) (retErr error) {

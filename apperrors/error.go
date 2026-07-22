@@ -38,9 +38,10 @@ var (
 
 // Indexer Errors
 var (
-	ErrNilIndexer            = errors.New("nil indexer")
-	ErrBlockHeightRegression = errors.New("block height cursor cannot move backwards")
-	ErrInvalidBlockRange     = errors.New("invalid block range")
+	ErrNilIndexer                 = errors.New("nil indexer")
+	ErrBlockHeightRegression      = errors.New("block height cursor cannot move backwards")
+	ErrInvalidBlockRange          = errors.New("invalid block range")
+	ErrNotificationConnectionLost = errors.New("notification connection lost")
 )
 
 // Config Errors
