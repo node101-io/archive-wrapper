@@ -172,6 +172,42 @@ func TestIndexAvailableBlocksDoesNotAdvanceCursorOnInvalidBlock(t *testing.T) {
 	require.False(t, hasRecord)
 }
 
+func TestIndexAvailableBlocksDoesNotAdvanceCursorWhenBestChainBlockMissing(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	conn := &fakeNotificationConn{}
+	querier := &fakeQuerier{
+		conn:             conn,
+		blockIDsByHeight: map[int64]int64{},
+		rowsByHeight:     map[int64][]sqlcdb.ListActionRowsByBlockIDRow{},
+	}
+
+	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
+	require.NoError(t, err)
+
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	require.NoError(t, db.InsertBlockHeight(68))
+
+	indexer, err := NewIndexer(conn, client, db, 10, 32, logger)
+	require.NoError(t, err)
+
+	err = indexer.indexAvailableBlocks(context.Background(), 69)
+	require.ErrorIs(t, err, apperrors.ErrBestChainBlockNotFound)
+
+	cursor, err := db.GetBlockHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(68), cursor)
+
+	hasRecord, err := db.Has(69)
+	require.NoError(t, err)
+	require.False(t, hasRecord)
+}
+
 type fakeNotificationConn struct {
 	execStatements []string
 	notifications  []*pgconn.Notification

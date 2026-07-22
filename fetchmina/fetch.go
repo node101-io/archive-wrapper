@@ -3,6 +3,7 @@ package fetchmina
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -89,8 +90,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 		return nil, err
 	}
 	if blockID == 0 {
-		c.logger.InfoContext(ctx, "no best-chain block found for height", "block_height", blockHeight)
-		return nil, nil
+		return nil, fmt.Errorf("%w: height %d resolved to zero block id", apperrors.ErrBestChainBlockNotFound, blockHeight)
 	}
 
 	rows, err := c.queries.ListActionRowsByBlockID(ctx, sqlcdb.ListActionRowsByBlockIDParams{
@@ -203,7 +203,7 @@ func (c *MinaClient) bestChainBlockIDForHeight(ctx context.Context, blockHeight 
 	row, err := c.queries.GetBestChainBlockIDAtHeight(ctx, blockHeight)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, nil
+			return 0, fmt.Errorf("%w: height %d", apperrors.ErrBestChainBlockNotFound, blockHeight)
 		}
 		return 0, cosmosErrors.Wrap(err, "err at query best chain block id")
 	}

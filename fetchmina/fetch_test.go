@@ -114,6 +114,44 @@ func TestFetchActionsFallsBackToPointLookupOncePerHeight(t *testing.T) {
 	require.Equal(t, []int64{900, 900}, querier.actionBlockIDs)
 }
 
+func TestFetchActionsReturnsErrorWhenBestChainBlockMissing(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	querier := &trackingQuerier{
+		bestChainBlockIDsByHeight: map[int64]int64{},
+		actionRowsByBlockID:       map[int64][]sqlcdb.ListActionRowsByBlockIDRow{},
+	}
+
+	client, err := NewMinaClient(validAddress, querier, logger)
+	require.NoError(t, err)
+
+	got, err := client.FetchActions(context.Background(), 90)
+	require.Nil(t, got)
+	require.ErrorIs(t, err, apperrors.ErrBestChainBlockNotFound)
+	require.Equal(t, []int64{90}, querier.pointLookupHeights)
+	require.Empty(t, querier.actionBlockIDs)
+}
+
+func TestFetchActionsReturnsEmptySliceWhenBestChainBlockHasNoActions(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	querier := &trackingQuerier{
+		bestChainBlockIDsByHeight: map[int64]int64{
+			90: 900,
+		},
+		actionRowsByBlockID: map[int64][]sqlcdb.ListActionRowsByBlockIDRow{
+			900: {},
+		},
+	}
+
+	client, err := NewMinaClient(validAddress, querier, logger)
+	require.NoError(t, err)
+
+	got, err := client.FetchActions(context.Background(), 90)
+	require.NoError(t, err)
+	require.Empty(t, got)
+	require.Equal(t, []int64{90}, querier.pointLookupHeights)
+	require.Equal(t, []int64{900}, querier.actionBlockIDs)
+}
+
 func TestFetchActionsPreservesQuerierRowOrderWithinBlock(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	querier := &trackingQuerier{

@@ -28,6 +28,7 @@ var (
 	ErrInvalidContractAddress = errors.New("invalid contract address")
 	ErrNilQueries             = errors.New("nil queries")
 	ErrInvalidBlockHeight     = errors.New("invalid block height")
+	ErrBestChainBlockNotFound = errors.New("best-chain block not found")
 
 	ErrNilAction         = errors.New("nil action")
 	ErrInvalidActionType = errors.New("invalid action type")
