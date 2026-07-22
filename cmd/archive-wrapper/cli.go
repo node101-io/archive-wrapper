@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -27,6 +29,13 @@ import (
 
 const network = "unix"
 const notificationReconnectDelay = 2 * time.Second
+
+const (
+	controlSocketReadTimeout  = time.Second
+	controlSocketPingCommand  = "PING\n"
+	controlSocketPongResponse = "PONG\n"
+	controlSocketStopCommand  = "STOP\n"
+)
 
 func run(args []string, ctx context.Context,
 	cancel context.CancelFunc, logger *slog.Logger) error {
@@ -374,6 +383,10 @@ func runStop(sockPath string, logger *slog.Logger) (retErr error) {
 		}
 	}()
 
+	if _, err := io.WriteString(c, controlSocketStopCommand); err != nil {
+		return fmt.Errorf("write stop command: %w", err)
+	}
+
 	cliLogger.Info("stop request sent", "socket_path", sockPath)
 
 	return
@@ -419,16 +432,21 @@ func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slo
 	controlLogger.Info("control socket listening", "socket_path", sockPath)
 
 	go func() {
-		// One successful connection is enough to trigger a graceful shutdown.
-		c, err := ln.Accept()
-		if err == nil {
-			_ = c.Close()
-			controlLogger.Info("stop request received via control socket", "socket_path", sockPath)
-			cancel()
-			return
-		}
-		if !errors.Is(err, net.ErrClosed) {
-			controlLogger.Error("control socket accept failed", "socket_path", sockPath, "err", err)
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				if !errors.Is(err, net.ErrClosed) {
+					controlLogger.Error("control socket accept failed", "socket_path", sockPath, "err", err)
+				}
+				return
+			}
+
+			shouldStop := handleControlSocketConn(c, sockPath, controlLogger)
+			if shouldStop {
+				controlLogger.Info("stop request received via control socket", "socket_path", sockPath)
+				cancel()
+				return
+			}
 		}
 	}()
 
@@ -451,7 +469,9 @@ func prepareControlSocket(sockPath string, logger *slog.Logger) error {
 
 	c, err := net.DialTimeout(network, sockPath, 300*time.Millisecond)
 	if err == nil {
-		_ = c.Close()
+		if err := probeLiveControlSocket(c); err != nil {
+			return fmt.Errorf("probe control socket %s: %w", sockPath, err)
+		}
 		controlLogger.Warn("control socket already in use", "socket_path", sockPath)
 		return fmt.Errorf("control socket already in use: %s", sockPath)
 	}
@@ -469,6 +489,69 @@ func prepareControlSocket(sockPath string, logger *slog.Logger) error {
 	}
 
 	return fmt.Errorf("probe control socket %s: %w", sockPath, err)
+}
+
+func handleControlSocketConn(c net.Conn, sockPath string, logger *slog.Logger) bool {
+	defer func() {
+		if err := c.Close(); err != nil {
+			logger.Warn("close control socket connection failed", "socket_path", sockPath, "err", err)
+		}
+	}()
+
+	if err := c.SetDeadline(time.Now().Add(controlSocketReadTimeout)); err != nil {
+		logger.Warn("set control socket deadline failed", "socket_path", sockPath, "err", err)
+		return false
+	}
+
+	command, err := bufio.NewReader(c).ReadString('\n')
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			logger.Warn("control socket connection closed without command", "socket_path", sockPath)
+			return false
+		}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			logger.Warn("control socket command timed out", "socket_path", sockPath)
+			return false
+		}
+		logger.Warn("read control socket command failed", "socket_path", sockPath, "err", err)
+		return false
+	}
+
+	switch strings.TrimSpace(command) {
+	case "PING":
+		if _, err := io.WriteString(c, controlSocketPongResponse); err != nil {
+			logger.Warn("write control socket pong failed", "socket_path", sockPath, "err", err)
+		}
+		return false
+	case "STOP":
+		return true
+	default:
+		logger.Warn("unknown control socket command", "socket_path", sockPath, "command", strings.TrimSpace(command))
+		return false
+	}
+}
+
+func probeLiveControlSocket(c net.Conn) error {
+	defer c.Close()
+
+	if err := c.SetDeadline(time.Now().Add(controlSocketReadTimeout)); err != nil {
+		return fmt.Errorf("set control socket probe deadline: %w", err)
+	}
+
+	if _, err := io.WriteString(c, controlSocketPingCommand); err != nil {
+		return fmt.Errorf("write control socket ping: %w", err)
+	}
+
+	response, err := bufio.NewReader(c).ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read control socket pong: %w", err)
+	}
+	if response != controlSocketPongResponse {
+		return fmt.Errorf("unexpected control socket response %q", strings.TrimSpace(response))
+	}
+
+	return nil
 }
 
 func usage() string {
