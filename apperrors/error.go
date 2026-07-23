@@ -55,4 +55,5 @@ var (
 	ErrDbPathRequired            = errors.New("db_path is required")
 	ErrControlSocketPathRequired = errors.New("control socket path is required")
 	ErrConfirmationDepthRequired = errors.New("confirmation_depth is required and must be greater than 0")
+	ErrMaxActionRangeRequired    = errors.New("max_action_range_heights is required and must be greater than 0")
 )

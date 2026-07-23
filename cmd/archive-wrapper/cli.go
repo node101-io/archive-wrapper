@@ -226,7 +226,7 @@ func runStart(ctx context.Context, cfg config.Config,
 	}()
 
 	grpcServer := grpc.NewServer()
-	queryService, err := query.NewQuery(db, logger)
+	queryService, err := query.NewQuery(db, logger, cfg.MaxActionRangeHeights)
 	if err != nil {
 		return err
 	}

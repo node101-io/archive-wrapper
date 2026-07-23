@@ -14,11 +14,12 @@ import (
 )
 
 type Query struct {
-	logger *slog.Logger
-	db     *database.DbManager
+	logger                *slog.Logger
+	db                    *database.DbManager
+	maxActionRangeHeights int64
 }
 
-func NewQuery(db *database.DbManager, logger *slog.Logger) (*Query, error) {
+func NewQuery(db *database.DbManager, logger *slog.Logger, maxActionRangeHeights int64) (*Query, error) {
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
 	}
@@ -30,13 +31,17 @@ func NewQuery(db *database.DbManager, logger *slog.Logger) (*Query, error) {
 	if err := db.Validate(); err != nil {
 		return nil, err
 	}
+	if maxActionRangeHeights <= 0 {
+		return nil, apperrors.ErrMaxActionRangeRequired
+	}
 
 	logger = logger.With("component", "query")
-	logger.Info("query service initialized")
+	logger.Info("query service initialized", "max_action_range_heights", maxActionRangeHeights)
 
 	return &Query{
-		logger: logger,
-		db:     db,
+		logger:                logger,
+		db:                    db,
+		maxActionRangeHeights: maxActionRangeHeights,
 	}, nil
 }
 
@@ -90,6 +95,14 @@ func (q *Query) GetActionsInRange(
 		return nil, status.Error(
 			codes.InvalidArgument,
 			"start block height must be less than or equal to end block height",
+		)
+	}
+
+	if in.EndBlockHeight-in.StartBlockHeight >= q.maxActionRangeHeights {
+		return nil, status.Errorf(
+			codes.InvalidArgument,
+			"requested block range exceeds maximum width of %d heights",
+			q.maxActionRangeHeights,
 		)
 	}
 
@@ -165,6 +178,10 @@ func (q *Query) GetActionsInRange(
 	result := make([]*actions.Action, 0)
 
 	for height := in.StartBlockHeight; height <= in.EndBlockHeight; height++ {
+		if err := ctx.Err(); err != nil {
+			return nil, status.FromContextError(err).Err()
+		}
+
 		record, err := q.db.Get(height)
 		if errors.Is(err, leveldb.ErrNotFound) {
 			// Inside the processed range, a missing record is treated as an empty block.

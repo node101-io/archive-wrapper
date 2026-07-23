@@ -8,6 +8,8 @@ import "gogoproto/gogo.proto";
 option go_package = "github.com/node101-io/archive-wrapper/query;query";
 
 service Query {
+  // GetActionsInRange returns actions for an inclusive indexed block range.
+  // Requests wider than the configured max_action_range_heights are rejected.
   rpc GetActionsInRange(QueryGetActionsInRangeRequest) returns (QueryGetActionsInRangeResponse);
   rpc GetMinaBlockHeight(QueryGetMinaBlockHeightRequest) returns (QueryGetMinaBlockHeightResponse);
 }
@@ -15,6 +17,8 @@ service Query {
 message QueryGetActionsInRangeRequest {
   option (gogoproto.goproto_getters) = false;
 
+  // Inclusive block-height range. The maximum supported width is configured by
+  // max_action_range_heights.
   int64 start_block_height = 1;
   int64 end_block_height = 2;
 }

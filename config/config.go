@@ -14,6 +14,7 @@ type Config struct {
 	DBPath                 string `mapstructure:"db_path"`
 	GRPCListenAddress      string `mapstructure:"grpc_listen_address"`
 	ControlSocketPath      string `mapstructure:"control_socket_path"`
+	MaxActionRangeHeights  int64  `mapstructure:"max_action_range_heights"`
 }
 
 func Load(configFile string) (Config, error) {
@@ -49,6 +50,9 @@ func Load(configFile string) (Config, error) {
 	}
 	if cfg.ControlSocketPath == "" {
 		return Config{}, apperrors.ErrControlSocketPathRequired
+	}
+	if cfg.MaxActionRangeHeights <= 0 {
+		return Config{}, apperrors.ErrMaxActionRangeRequired
 	}
 
 	return cfg, nil
