@@ -49,6 +49,7 @@ func (q *Query) GetMinaBlockHeight(
 		)
 	}
 	if err != nil {
+		q.logger.ErrorContext(ctx, "failed to read latest processed block height", "err", err)
 		return nil, status.Error(
 			codes.Internal,
 			"failed to read latest block height",
