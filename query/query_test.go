@@ -116,6 +116,32 @@ func TestQuery_ProcessedEmptyBlockReturnsEmptyList(t *testing.T) {
 	require.Empty(t, got.Actions)
 }
 
+func TestQuery_NoProcessedBlocksReturnsFailedPrecondition(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	require.NotNil(t, logger)
+
+	manager, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	require.NotNil(t, manager)
+
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
+
+	q, err := NewQuery(manager, logger, testMaxActionRangeHeights)
+	require.NoError(t, err)
+
+	got, err := q.GetActionsInRange(context.Background(), &QueryGetActionsInRangeRequest{
+		StartBlockHeight: 7,
+		EndBlockHeight:   7,
+	})
+
+	require.Nil(t, got)
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Equal(t, "indexer has not processed any blocks yet", status.Convert(err).Message())
+}
+
 func TestQuery_RangeBelowStartHeightReturnsFailedPrecondition(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	require.NotNil(t, logger)
