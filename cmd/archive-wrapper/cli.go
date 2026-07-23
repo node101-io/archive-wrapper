@@ -184,7 +184,7 @@ func runStart(ctx context.Context, cfg config.Config,
 
 	postgresURI := strings.TrimSpace(os.Getenv("POSTGRES_URI"))
 	if postgresURI == "" {
-		return apperrors.ErrPostgreUriRequired
+		return apperrors.ErrPostgresURIRequired
 	}
 
 	runtimeLogger.Info("connecting to postgres")

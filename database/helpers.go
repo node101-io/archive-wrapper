@@ -17,7 +17,7 @@ func encodeBlockHeight(height int64) []byte {
 func decodeBlockHeight(b []byte) (int64, error) {
 
 	if len(b) != 8 {
-		return 0, apperrors.ErrInvalidLenght
+		return 0, apperrors.ErrInvalidLength
 	}
 
 	return int64(binary.BigEndian.Uint64(b)), nil

@@ -8,8 +8,8 @@ var (
 )
 
 var (
-	// ErrPostgreUriRequired reports that the PostgreSQL connection string is missing.
-	ErrPostgreUriRequired = errors.New("POSTGRES_URI is required")
+	// ErrPostgresURIRequired reports that the PostgreSQL connection string is missing.
+	ErrPostgresURIRequired = errors.New("POSTGRES_URI is required")
 )
 
 var (
@@ -17,8 +17,8 @@ var (
 	ErrNilManager = errors.New("nil db manager")
 	// ErrUninitializedDB reports that the database manager has no open LevelDB handle.
 	ErrUninitializedDB = errors.New("db manager is not initialized")
-	// ErrInvalidLenght reports that an encoded block height has an invalid byte length.
-	ErrInvalidLenght = errors.New("invalid lenght")
+	// ErrInvalidLength reports that an encoded block height has an invalid byte length.
+	ErrInvalidLength = errors.New("invalid length")
 	// ErrBlockHeightMustBeBiggerThanZero reports that a block height argument was non-positive.
 	ErrBlockHeightMustBeBiggerThanZero = errors.New("block height must be bigger than zero")
 	// ErrInvalidKey reports that a stored block record key does not match its action heights.
@@ -69,14 +69,14 @@ var (
 )
 
 var (
-	// ErrGrpcAddressRequired reports that grpc_listen_address is missing from config.
-	ErrGrpcAddressRequired = errors.New("grpc_listen_address is required")
+	// ErrGRPCAddressRequired reports that grpc_listen_address is missing from config.
+	ErrGRPCAddressRequired = errors.New("grpc_listen_address is required")
 	// ErrContractAddressRequired reports that contract_address is missing from config.
 	ErrContractAddressRequired = errors.New("contract_address is required")
-	// ErrBlockHeightDbKeyRequired reports that block_height_database_key is missing from config.
-	ErrBlockHeightDbKeyRequired = errors.New("block_height_database_key is required")
-	// ErrDbPathRequired reports that db_path is missing from config.
-	ErrDbPathRequired = errors.New("db_path is required")
+	// ErrBlockHeightDBKeyRequired reports that block_height_database_key is missing from config.
+	ErrBlockHeightDBKeyRequired = errors.New("block_height_database_key is required")
+	// ErrDBPathRequired reports that db_path is missing from config.
+	ErrDBPathRequired = errors.New("db_path is required")
 	// ErrControlSocketPathRequired reports that the control socket path is missing from config.
 	ErrControlSocketPathRequired = errors.New("control socket path is required")
 	// ErrConfirmationDepthRequired reports that confirmation_depth is missing or non-positive.

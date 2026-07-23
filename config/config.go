@@ -45,16 +45,16 @@ func Load(configFile string) (Config, error) {
 	cfg.ControlSocketPath = strings.TrimSpace(cfg.ControlSocketPath)
 
 	if cfg.GRPCListenAddress == "" {
-		return Config{}, apperrors.ErrGrpcAddressRequired
+		return Config{}, apperrors.ErrGRPCAddressRequired
 	}
 	if cfg.ContractAddress == "" {
 		return Config{}, apperrors.ErrContractAddressRequired
 	}
 	if cfg.BlockHeightDatabaseKey == "" {
-		return Config{}, apperrors.ErrBlockHeightDbKeyRequired
+		return Config{}, apperrors.ErrBlockHeightDBKeyRequired
 	}
 	if cfg.DBPath == "" {
-		return Config{}, apperrors.ErrDbPathRequired
+		return Config{}, apperrors.ErrDBPathRequired
 	}
 	if cfg.ControlSocketPath == "" {
 		return Config{}, apperrors.ErrControlSocketPathRequired
