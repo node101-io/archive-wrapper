@@ -15,6 +15,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
+// DbManager stores indexed block records and cursor metadata in LevelDB.
 type DbManager struct {
 	logger                 *slog.Logger
 	db                     *leveldb.DB
@@ -23,6 +24,8 @@ type DbManager struct {
 	blockHeightMu          sync.Mutex
 }
 
+// NewDbManager opens or creates a LevelDB store at path.
+// Callers must Close the returned manager when they are done with it.
 func NewDbManager(path, blockHeightDatabaseKey string, logger *slog.Logger) (*DbManager, error) {
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
@@ -44,6 +47,7 @@ func NewDbManager(path, blockHeightDatabaseKey string, logger *slog.Logger) (*Db
 	}, nil
 }
 
+// Validate reports whether the manager is ready to serve reads and writes.
 func (manager *DbManager) Validate() error {
 
 	if manager == nil {
@@ -61,6 +65,7 @@ func (manager *DbManager) Validate() error {
 	return nil
 }
 
+// Insert stores the indexed actions for a single block height.
 func (manager *DbManager) Insert(record actions.DbRecord) error {
 
 	if err := manager.Validate(); err != nil {
@@ -83,6 +88,7 @@ func (manager *DbManager) Insert(record actions.DbRecord) error {
 	return manager.db.Put(encodeBlockHeight(record.Key), marshalled, nil)
 }
 
+// Has reports whether a block record exists for height.
 func (manager *DbManager) Has(height int64) (bool, error) {
 
 	if err := manager.Validate(); err != nil {
@@ -97,6 +103,7 @@ func (manager *DbManager) Has(height int64) (bool, error) {
 	return exists, err
 }
 
+// Get loads the indexed block record stored for height.
 func (manager *DbManager) Get(height int64) (actions.DbRecord, error) {
 
 	if err := manager.Validate(); err != nil {
@@ -121,6 +128,8 @@ func (manager *DbManager) Get(height int64) (actions.DbRecord, error) {
 	return record, nil
 }
 
+// InsertBlockHeight advances the latest processed block cursor.
+// Duplicate heights are treated as idempotent updates and regressions are rejected.
 func (manager *DbManager) InsertBlockHeight(height int64) error {
 
 	if err := manager.Validate(); err != nil {
@@ -175,6 +184,7 @@ func (manager *DbManager) InsertBlockHeight(height int64) error {
 	return manager.db.Put(key, encodeBlockHeight(height), nil)
 }
 
+// HasBlockHeight reports whether the latest processed block cursor exists.
 func (manager *DbManager) HasBlockHeight() (bool, error) {
 	if err := manager.Validate(); err != nil {
 		return false, err
@@ -183,6 +193,7 @@ func (manager *DbManager) HasBlockHeight() (bool, error) {
 	return manager.db.Has([]byte(manager.blockHeightDatabaseKey), nil)
 }
 
+// HasStartBlockHeight reports whether the earliest indexed block height exists.
 func (manager *DbManager) HasStartBlockHeight() (bool, error) {
 	if err := manager.Validate(); err != nil {
 		return false, err
@@ -191,6 +202,8 @@ func (manager *DbManager) HasStartBlockHeight() (bool, error) {
 	return manager.db.Has([]byte(manager.startBlockHeightKey), nil)
 }
 
+// GetBlockHeight returns the latest processed block height cursor.
+// It returns leveldb.ErrNotFound until the first successful block is processed.
 func (manager *DbManager) GetBlockHeight() (int64, error) {
 
 	if err := manager.Validate(); err != nil {
@@ -214,6 +227,8 @@ func (manager *DbManager) GetBlockHeight() (int64, error) {
 	return height, nil
 }
 
+// GetStartBlockHeight returns the earliest indexed block height bound.
+// It returns leveldb.ErrNotFound until the start height has been initialized.
 func (manager *DbManager) GetStartBlockHeight() (int64, error) {
 	if err := manager.Validate(); err != nil {
 		return 0, err
@@ -236,6 +251,8 @@ func (manager *DbManager) GetStartBlockHeight() (int64, error) {
 	return height, nil
 }
 
+// EnsureStartBlockHeight persists the earliest indexed block height once and
+// validates it against any existing cursor or stored records.
 func (manager *DbManager) EnsureStartBlockHeight(height int64) error {
 	if err := manager.Validate(); err != nil {
 		return err
@@ -345,6 +362,7 @@ func (manager *DbManager) getEarliestStoredRecordHeight() (int64, bool, error) {
 	return 0, false, nil
 }
 
+// Close closes the underlying LevelDB handle and marks the manager unusable.
 func (manager *DbManager) Close() error {
 
 	if err := manager.Validate(); err != nil {

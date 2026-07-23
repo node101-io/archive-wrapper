@@ -5,7 +5,7 @@ import (
 	"github.com/node101-io/archive-wrapper/apperrors"
 )
 
-// Creates a DbRecord for the block height with its corresponding actions.
+// IndexActions builds a database record for height from the provided actions.
 func IndexActions(items []actions.Action, height int64) (actions.DbRecord, error) {
 
 	if len(items) == 0 {

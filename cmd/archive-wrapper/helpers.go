@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 )
 
+// LoadConfirmationDepthFromHome reads confirmation_depth from the chain home app.toml.
 func LoadConfirmationDepthFromHome(homePath string) (int64, error) {
 	homePath = strings.TrimSpace(homePath)
 	if homePath == "" {

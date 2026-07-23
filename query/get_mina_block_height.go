@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// GetMinaBlockHeight returns the latest block height successfully indexed into LevelDB.
 func (q *Query) GetMinaBlockHeight(
 	ctx context.Context,
 	in *QueryGetMinaBlockHeightRequest,

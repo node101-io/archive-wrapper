@@ -19,6 +19,7 @@ type notificationConn interface {
 	WaitForNotification(context.Context) (*pgconn.Notification, error)
 }
 
+// Indexer synchronizes confirmed Mina actions into the local LevelDB store.
 type Indexer struct {
 	logger            *slog.Logger
 	conn              notificationConn
@@ -28,6 +29,7 @@ type Indexer struct {
 	startBlockHeight  int64
 }
 
+// BlockNotification is the NOTIFY payload emitted for new Mina tip heights.
 type BlockNotification struct {
 	Height int64 `json:"height"`
 }
@@ -37,6 +39,7 @@ const (
 	retryDelay = 2 * time.Second
 )
 
+// NewIndexer constructs an Indexer and validates persisted indexing bounds.
 func NewIndexer(
 	conn notificationConn,
 	client *fetchmina.MinaClient,
@@ -92,6 +95,7 @@ func NewIndexer(
 	}, nil
 }
 
+// Sync catches the local cursor up to the current confirmed Mina tip.
 func (indexer *Indexer) Sync(ctx context.Context) error {
 	if indexer == nil {
 		return apperrors.ErrNilIndexer
@@ -168,6 +172,8 @@ func (indexer *Indexer) syncTo(
 	return nil
 }
 
+// Run registers for notifications, completes the initial sync, and then
+// keeps reconciling newly confirmed blocks until ctx is canceled.
 func (indexer *Indexer) Run(ctx context.Context) error {
 	if indexer.logger == nil {
 		return apperrors.ErrNilLogger

@@ -24,6 +24,7 @@ const (
 	minimumActionFields = actionAmountIndex + 1
 )
 
+// MinaClient reads best-chain block data and zkApp actions from the archive database.
 type MinaClient struct {
 	logger          *slog.Logger
 	queries         sqlcdb.Querier
@@ -32,6 +33,7 @@ type MinaClient struct {
 	bestChainCache  map[int64]int64
 }
 
+// NewMinaClient validates the configured contract address and query dependencies.
 func NewMinaClient(contractAddress string, queries sqlcdb.Querier, logger *slog.Logger) (*MinaClient, error) {
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
@@ -62,6 +64,7 @@ func NewMinaClient(contractAddress string, queries sqlcdb.Querier, logger *slog.
 	}, nil
 }
 
+// GetMinaBlockHeight returns the latest block height visible in the archive database.
 func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 	if err := c.validate(); err != nil {
 		return 0, err
@@ -77,6 +80,8 @@ func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 	return height, nil
 }
 
+// FetchActions returns the indexed action stream for blockHeight on the cached best chain.
+// It returns ErrBestChainBlockNotFound when the selected chain has no block at that height yet.
 func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]actions.Action, error) {
 	if blockHeight <= 0 {
 		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidBlockHeight, "block height must be greater than 0")
@@ -134,6 +139,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 	return result, nil
 }
 
+// PrimeBestChainRange caches best-chain block IDs for the inclusive height range.
 func (c *MinaClient) PrimeBestChainRange(ctx context.Context, startHeight, endHeight int64) error {
 	if startHeight <= 0 {
 		return cosmosErrors.Wrap(apperrors.ErrInvalidBlockHeight, "start height must be greater than 0")

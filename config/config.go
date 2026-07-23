@@ -8,15 +8,23 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Config holds the runtime settings loaded from the wrapper config file.
 type Config struct {
-	ContractAddress        string `mapstructure:"contract_address"`
+	// ContractAddress is the Mina zkApp address whose actions are indexed.
+	ContractAddress string `mapstructure:"contract_address"`
+	// BlockHeightDatabaseKey stores the latest processed block cursor key.
 	BlockHeightDatabaseKey string `mapstructure:"block_height_database_key"`
-	DBPath                 string `mapstructure:"db_path"`
-	GRPCListenAddress      string `mapstructure:"grpc_listen_address"`
-	ControlSocketPath      string `mapstructure:"control_socket_path"`
-	MaxActionRangeHeights  int64  `mapstructure:"max_action_range_heights"`
+	// DBPath is the local LevelDB path used for indexed data.
+	DBPath string `mapstructure:"db_path"`
+	// GRPCListenAddress is the address where the query server listens.
+	GRPCListenAddress string `mapstructure:"grpc_listen_address"`
+	// ControlSocketPath is the unix socket path used by start and stop commands.
+	ControlSocketPath string `mapstructure:"control_socket_path"`
+	// MaxActionRangeHeights limits the maximum inclusive block range per query.
+	MaxActionRangeHeights int64 `mapstructure:"max_action_range_heights"`
 }
 
+// Load reads configFile, normalizes string fields, and validates required values.
 func Load(configFile string) (Config, error) {
 	v := viper.New()
 	v.SetConfigFile(configFile)

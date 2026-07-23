@@ -13,12 +13,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Query serves gRPC reads against the locally indexed LevelDB data.
 type Query struct {
 	logger                *slog.Logger
 	db                    *database.DbManager
 	maxActionRangeHeights int64
 }
 
+// NewQuery constructs a Query service with the configured range guard.
 func NewQuery(db *database.DbManager, logger *slog.Logger, maxActionRangeHeights int64) (*Query, error) {
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
@@ -45,6 +47,8 @@ func NewQuery(db *database.DbManager, logger *slog.Logger, maxActionRangeHeights
 	}, nil
 }
 
+// GetActionsInRange returns all indexed actions for the inclusive block range.
+// It rejects ranges outside the indexed bounds and ranges wider than maxActionRangeHeights.
 func (q *Query) GetActionsInRange(
 	ctx context.Context,
 	in *QueryGetActionsInRangeRequest,
