@@ -107,3 +107,51 @@ func TestDbManagerInsertBlockHeightRejectsRegression(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, apperrors.ErrBlockHeightRegression))
 }
+
+func TestDbManagerEnsureStartBlockHeightPersistsAndRejectsMismatch(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	require.NotNil(t, logger)
+
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	require.NotNil(t, manager)
+
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
+
+	require.NoError(t, manager.EnsureStartBlockHeight(7))
+
+	startHeight, err := manager.GetStartBlockHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(7), startHeight)
+
+	require.NoError(t, manager.EnsureStartBlockHeight(7))
+
+	err = manager.EnsureStartBlockHeight(8)
+	require.Error(t, err)
+	require.ErrorIs(t, err, apperrors.ErrStartBlockHeightMismatch)
+}
+
+func TestDbManagerEnsureStartBlockHeightRejectsInvalidBounds(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	require.NotNil(t, logger)
+
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	require.NotNil(t, manager)
+
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
+
+	require.NoError(t, manager.InsertBlockHeight(7))
+
+	err = manager.EnsureStartBlockHeight(8)
+	require.Error(t, err)
+	require.ErrorIs(t, err, apperrors.ErrInvalidIndexedBounds)
+
+	hasStartHeight, err := manager.HasStartBlockHeight()
+	require.NoError(t, err)
+	require.False(t, hasStartHeight)
+}

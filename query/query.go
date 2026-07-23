@@ -93,8 +93,48 @@ func (q *Query) GetActionsInRange(
 		)
 	}
 
+	earliestHeight, err := q.db.GetStartBlockHeight()
+	if errors.Is(err, leveldb.ErrNotFound) {
+		return nil, status.Error(
+			codes.FailedPrecondition,
+			"indexer start block height is not initialized",
+		)
+	}
+	if err != nil {
+		q.logger.ErrorContext(ctx, "failed to read earliest indexed block height", "err", err)
+		return nil, status.Error(
+			codes.Internal,
+			"failed to read earliest indexed block height",
+		)
+	}
+
+	if in.StartBlockHeight < earliestHeight {
+		q.logger.WarnContext(
+			ctx,
+			"query requested range below earliest indexed height",
+			"start_block_height",
+			in.StartBlockHeight,
+			"end_block_height",
+			in.EndBlockHeight,
+			"earliest_indexed_height",
+			earliestHeight,
+		)
+		return nil, status.Errorf(
+			codes.FailedPrecondition,
+			"start block height %d is lower than earliest indexed block %d",
+			in.StartBlockHeight,
+			earliestHeight,
+		)
+	}
+
 	// The latest processed cursor tells us whether this range is queryable yet.
 	latestHeight, err := q.db.GetBlockHeight()
+	if errors.Is(err, leveldb.ErrNotFound) {
+		return nil, status.Error(
+			codes.FailedPrecondition,
+			"indexer has not processed any blocks yet",
+		)
+	}
 	if err != nil {
 		q.logger.ErrorContext(ctx, "failed to read latest processed block height", "err", err)
 		return nil, status.Error(

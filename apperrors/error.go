@@ -43,6 +43,8 @@ var (
 	ErrBlockHeightRegression      = errors.New("block height cursor cannot move backwards")
 	ErrInvalidBlockRange          = errors.New("invalid block range")
 	ErrNotificationConnectionLost = errors.New("notification connection lost")
+	ErrStartBlockHeightMismatch   = errors.New("start block height does not match persisted start block height")
+	ErrInvalidIndexedBounds       = errors.New("persisted index bounds are invalid")
 )
 
 // Config Errors

@@ -10,6 +10,8 @@ import (
 	"github.com/node101-io/archive-wrapper/database"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const blockHeightDatabaseKey = "db-key"
@@ -54,6 +56,9 @@ func TestQuery(t *testing.T) {
 	err = manager.Insert(second)
 	require.NoError(t, err)
 
+	err = manager.EnsureStartBlockHeight(want.Key)
+	require.NoError(t, err)
+
 	err = manager.InsertBlockHeight(second.Key)
 	require.NoError(t, err)
 
@@ -91,6 +96,9 @@ func TestQuery_ProcessedEmptyBlockReturnsEmptyList(t *testing.T) {
 		require.NoError(t, manager.Close())
 	}()
 
+	err = manager.EnsureStartBlockHeight(7)
+	require.NoError(t, err)
+
 	err = manager.InsertBlockHeight(7)
 	require.NoError(t, err)
 
@@ -105,4 +113,35 @@ func TestQuery_ProcessedEmptyBlockReturnsEmptyList(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	require.Empty(t, got.Actions)
+}
+
+func TestQuery_RangeBelowStartHeightReturnsFailedPrecondition(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	require.NotNil(t, logger)
+
+	manager, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	require.NotNil(t, manager)
+
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
+
+	err = manager.EnsureStartBlockHeight(7)
+	require.NoError(t, err)
+	err = manager.InsertBlockHeight(9)
+	require.NoError(t, err)
+
+	q, err := NewQuery(manager, logger)
+	require.NoError(t, err)
+
+	got, err := q.GetActionsInRange(context.Background(), &QueryGetActionsInRangeRequest{
+		StartBlockHeight: 6,
+		EndBlockHeight:   9,
+	})
+
+	require.Nil(t, got)
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Equal(t, "start block height 6 is lower than earliest indexed block 7", status.Convert(err).Message())
 }

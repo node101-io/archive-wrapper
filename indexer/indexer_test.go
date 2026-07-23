@@ -38,6 +38,24 @@ func TestNewIndexerRejectsNilConnection(t *testing.T) {
 	require.ErrorIs(t, err, apperrors.ErrNilConnection)
 }
 
+func TestNewIndexerRejectsPersistedStartBlockHeightMismatch(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	require.NotNil(t, logger)
+
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	require.NoError(t, db.EnsureStartBlockHeight(10))
+
+	indexer, err := NewIndexer(&fakeNotificationConn{}, &fetchmina.MinaClient{}, db, 11, 32, logger)
+
+	require.Nil(t, indexer)
+	require.ErrorIs(t, err, apperrors.ErrStartBlockHeightMismatch)
+}
+
 func TestIndexActionsBuildsRecord(t *testing.T) {
 	items := []actions.Action{
 		{BlockHeight: 7, FeePayer: []byte("alice"), ActionType: actions.ActionType_DEPOSIT, Amount: 5},
