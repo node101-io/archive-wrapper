@@ -14,10 +14,13 @@ import (
 )
 
 func main() {
+	os.Exit(mainExitCode())
+}
 
+func mainExitCode() int {
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to load environment file: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	logPath := os.Getenv("ARCHIVE_WRAPPER_LOG_PATH")
@@ -28,7 +31,7 @@ func main() {
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to open log file %s: %v\n", logPath, err)
-		os.Exit(1)
+		return 1
 	}
 
 	logger := slog.New(
@@ -57,8 +60,9 @@ func main() {
 
 	if err := run(os.Args[1:], ctx, cancel, logger); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Error("archive-wrapper process failed", "err", err)
-		os.Exit(1)
+		return 1
 	}
 
 	logger.Info("archive-wrapper process stopped")
+	return 0
 }
