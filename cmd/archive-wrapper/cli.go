@@ -311,11 +311,12 @@ func runIndexerWithReconnect(
 			return err
 		}
 
-		if !errors.Is(err, apperrors.ErrNotificationConnectionLost) {
+		if !errors.Is(err, apperrors.ErrNotificationConnectionLost) &&
+			!errors.Is(err, apperrors.ErrQueryConnectionLost) {
 			return err
 		}
 
-		runtimeLogger.Warn("notification connection lost, reconnecting", "retry_delay", notificationReconnectDelay, "err", err)
+		runtimeLogger.Warn("postgres connection lost, reconnecting", "retry_delay", notificationReconnectDelay, "err", err)
 
 		select {
 		case <-ctx.Done():

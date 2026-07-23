@@ -29,6 +29,7 @@ var (
 	ErrNilQueries             = errors.New("nil queries")
 	ErrInvalidBlockHeight     = errors.New("invalid block height")
 	ErrBestChainBlockNotFound = errors.New("best-chain block not found")
+	ErrQueryConnectionLost    = errors.New("query connection lost")
 
 	ErrNilAction         = errors.New("nil action")
 	ErrInvalidActionType = errors.New("invalid action type")

@@ -226,6 +226,31 @@ func TestIndexAvailableBlocksDoesNotAdvanceCursorWhenBestChainBlockMissing(t *te
 	require.False(t, hasRecord)
 }
 
+func TestRunReturnsReconnectableErrorWhenInitialSyncQueryConnectionFails(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	conn := &fakeNotificationConn{}
+	querier := &fakeQuerier{
+		conn:            conn,
+		latestHeightErr: context.DeadlineExceeded,
+	}
+
+	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
+	require.NoError(t, err)
+
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	indexer, err := NewIndexer(conn, client, db, 10, 32, logger)
+	require.NoError(t, err)
+
+	err = indexer.Run(context.Background())
+	require.ErrorIs(t, err, apperrors.ErrQueryConnectionLost)
+}
+
 type fakeNotificationConn struct {
 	execStatements []string
 	notifications  []*pgconn.Notification
@@ -272,6 +297,7 @@ type rangeRequest struct {
 type fakeQuerier struct {
 	conn                   *fakeNotificationConn
 	latestHeight           int64
+	latestHeightErr        error
 	blockIDsByHeight       map[int64]int64
 	primedRanges           []rangeRequest
 	requestedActionHeights []heightRequest
@@ -282,6 +308,9 @@ type fakeQuerier struct {
 func (q *fakeQuerier) GetLatestBlockHeight(context.Context) (int64, error) {
 	if !q.conn.listenReady {
 		return 0, errors.New("LISTEN must be registered before initial sync")
+	}
+	if q.latestHeightErr != nil {
+		return 0, q.latestHeightErr
 	}
 
 	return q.latestHeight, nil

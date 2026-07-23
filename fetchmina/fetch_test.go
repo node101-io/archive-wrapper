@@ -49,6 +49,20 @@ func TestActionFromRawDataBuildsAction(t *testing.T) {
 	require.NotEmpty(t, action.FeePayer)
 }
 
+func TestGetMinaBlockHeightWrapsRetryableQueryErrors(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	querier := &trackingQuerier{
+		latestHeightErr: context.DeadlineExceeded,
+	}
+
+	client, err := NewMinaClient(validAddress, querier, logger)
+	require.NoError(t, err)
+
+	height, err := client.GetMinaBlockHeight(context.Background())
+	require.Zero(t, height)
+	require.ErrorIs(t, err, apperrors.ErrQueryConnectionLost)
+}
+
 func TestPrimeBestChainRangeCachesBlockIDsForFetchActions(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	querier := &trackingQuerier{
@@ -152,6 +166,36 @@ func TestFetchActionsReturnsEmptySliceWhenBestChainBlockHasNoActions(t *testing.
 	require.Equal(t, []int64{900}, querier.actionBlockIDs)
 }
 
+func TestFetchActionsWrapsRetryableActionQueryErrors(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	querier := &trackingQuerier{
+		bestChainBlockIDsByHeight: map[int64]int64{
+			90: 900,
+		},
+		actionRowsErr: context.DeadlineExceeded,
+	}
+
+	client, err := NewMinaClient(validAddress, querier, logger)
+	require.NoError(t, err)
+
+	got, err := client.FetchActions(context.Background(), 90)
+	require.Nil(t, got)
+	require.ErrorIs(t, err, apperrors.ErrQueryConnectionLost)
+}
+
+func TestPrimeBestChainRangeWrapsRetryableQueryErrors(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	querier := &trackingQuerier{
+		rangeErr: context.DeadlineExceeded,
+	}
+
+	client, err := NewMinaClient(validAddress, querier, logger)
+	require.NoError(t, err)
+
+	err = client.PrimeBestChainRange(context.Background(), 90, 91)
+	require.ErrorIs(t, err, apperrors.ErrQueryConnectionLost)
+}
+
 func TestFetchActionsPreservesQuerierRowOrderWithinBlock(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	querier := &trackingQuerier{
@@ -191,14 +235,25 @@ type trackingQuerier struct {
 	primedRanges              []rangeKey
 	pointLookupHeights        []int64
 	actionBlockIDs            []int64
+	latestHeightErr           error
+	rangeErr                  error
+	pointLookupErr            error
+	actionRowsErr             error
 }
 
 func (q *trackingQuerier) GetLatestBlockHeight(context.Context) (int64, error) {
+	if q.latestHeightErr != nil {
+		return 0, q.latestHeightErr
+	}
 	return 0, nil
 }
 
 func (q *trackingQuerier) GetBestChainBlockIDAtHeight(_ context.Context, height int64) (sqlcdb.GetBestChainBlockIDAtHeightRow, error) {
 	q.pointLookupHeights = append(q.pointLookupHeights, height)
+
+	if q.pointLookupErr != nil {
+		return sqlcdb.GetBestChainBlockIDAtHeightRow{}, q.pointLookupErr
+	}
 
 	blockID, ok := q.bestChainBlockIDsByHeight[height]
 	if !ok {
@@ -214,11 +269,17 @@ func (q *trackingQuerier) GetBestChainBlockIDAtHeight(_ context.Context, height 
 func (q *trackingQuerier) ListBestChainBlockIDsInRange(_ context.Context, arg sqlcdb.ListBestChainBlockIDsInRangeParams) ([]sqlcdb.ListBestChainBlockIDsInRangeRow, error) {
 	key := rangeKey{startHeight: arg.StartHeight, endHeight: arg.EndHeight}
 	q.primedRanges = append(q.primedRanges, key)
+	if q.rangeErr != nil {
+		return nil, q.rangeErr
+	}
 	return q.bestChainRowsByRange[key], nil
 }
 
 func (q *trackingQuerier) ListActionRowsByBlockID(_ context.Context, arg sqlcdb.ListActionRowsByBlockIDParams) ([]sqlcdb.ListActionRowsByBlockIDRow, error) {
 	q.actionBlockIDs = append(q.actionBlockIDs, arg.BlockID)
+	if q.actionRowsErr != nil {
+		return nil, q.actionRowsErr
+	}
 	return q.actionRowsByBlockID[arg.BlockID], nil
 }
 

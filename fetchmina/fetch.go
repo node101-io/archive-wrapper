@@ -11,6 +11,7 @@ import (
 
 	cosmosErrors "cosmossdk.io/errors"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	actions "github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
@@ -68,7 +69,7 @@ func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 
 	height, err := c.queries.GetLatestBlockHeight(ctx)
 	if err != nil {
-		return 0, cosmosErrors.Wrap(err, "err at query latest block height")
+		return 0, wrapQueryError("query latest block height", err)
 	}
 
 	c.logger.InfoContext(ctx, "fetched latest mina block height", "height", height)
@@ -98,7 +99,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 		ContractAddress: c.contractAddress,
 	})
 	if err != nil {
-		return nil, cosmosErrors.Wrap(err, "err at query archive actions")
+		return nil, wrapQueryError("query archive actions", err)
 	}
 
 	result := make([]actions.Action, 0)
@@ -150,7 +151,7 @@ func (c *MinaClient) PrimeBestChainRange(ctx context.Context, startHeight, endHe
 		EndHeight:   endHeight,
 	})
 	if err != nil {
-		return cosmosErrors.Wrap(err, "err at query best chain range")
+		return wrapQueryError("query best chain range", err)
 	}
 
 	blockIDs := make(map[int64]int64, len(rows))
@@ -205,7 +206,7 @@ func (c *MinaClient) bestChainBlockIDForHeight(ctx context.Context, blockHeight 
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, fmt.Errorf("%w: height %d", apperrors.ErrBestChainBlockNotFound, blockHeight)
 		}
-		return 0, cosmosErrors.Wrap(err, "err at query best chain block id")
+		return 0, wrapQueryError("query best chain block id", err)
 	}
 
 	c.cacheMu.Lock()
@@ -256,6 +257,20 @@ func actionFromRawData(blockHeight int64, feePayer string, data []string) (*acti
 		ActionType:  actionType,
 		Amount:      amount,
 	}, nil
+}
+
+func wrapQueryError(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	if errors.Is(err, context.DeadlineExceeded) || pgconn.SafeToRetry(err) || pgconn.Timeout(err) {
+		return fmt.Errorf("%w: %s: %w", apperrors.ErrQueryConnectionLost, operation, err)
+	}
+
+	return fmt.Errorf("%s: %w", operation, err)
 }
 
 func parseActionData(data []string) (actions.ActionType, int64, error) {
