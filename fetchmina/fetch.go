@@ -272,7 +272,7 @@ func wrapQueryError(operation string, err error) error {
 	if errors.Is(err, context.Canceled) {
 		return err
 	}
-	if errors.Is(err, context.DeadlineExceeded) || pgconn.SafeToRetry(err) || pgconn.Timeout(err) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, pgconn.ErrConnClosed) || pgconn.SafeToRetry(err) || pgconn.Timeout(err) {
 		return fmt.Errorf("%w: %s: %w", apperrors.ErrQueryConnectionLost, operation, err)
 	}
 

@@ -3,11 +3,13 @@ package fetchmina
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	actions "github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
@@ -61,6 +63,25 @@ func TestGetMinaBlockHeightWrapsRetryableQueryErrors(t *testing.T) {
 	height, err := client.GetMinaBlockHeight(context.Background())
 	require.Zero(t, height)
 	require.ErrorIs(t, err, apperrors.ErrQueryConnectionLost)
+}
+
+func TestWrapQueryErrorClassifiesClosedConnections(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "direct", err: pgconn.ErrConnClosed},
+		{name: "wrapped", err: fmt.Errorf("query failed: %w", pgconn.ErrConnClosed)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapQueryError("query actions", tt.err)
+
+			require.ErrorIs(t, got, apperrors.ErrQueryConnectionLost)
+			require.ErrorIs(t, got, pgconn.ErrConnClosed)
+		})
+	}
 }
 
 func TestPrimeBestChainRangeCachesBlockIDsForFetchActions(t *testing.T) {

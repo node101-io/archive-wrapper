@@ -173,13 +173,7 @@ func runStart(ctx context.Context, cfg config.Config,
 		return err
 	}
 	defer func() {
-		// Always remove the socket path on shutdown so the next start begins cleanly.
-		if err := ln.Close(); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("close control socket listener: %w", err))
-		}
-		if err := os.Remove(cfg.ControlSocketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			retErr = errors.Join(retErr, fmt.Errorf("remove control socket: %w", err))
-		}
+		retErr = errors.Join(retErr, closeControlSocketListener(ln))
 	}()
 
 	postgresURI := strings.TrimSpace(os.Getenv("POSTGRES_URI"))
@@ -282,6 +276,13 @@ func runStart(ctx context.Context, cfg config.Config,
 	}
 
 	return
+}
+
+func closeControlSocketListener(ln net.Listener) error {
+	if err := ln.Close(); err != nil {
+		return fmt.Errorf("close control socket listener: %w", err)
+	}
+	return nil
 }
 
 func runIndexerWithReconnect(
