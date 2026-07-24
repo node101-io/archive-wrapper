@@ -20,7 +20,7 @@ type Config struct {
 	GRPCListenAddress string `mapstructure:"grpc_listen_address"`
 	// ControlSocketPath is the unix socket path used by start and stop commands.
 	ControlSocketPath string `mapstructure:"control_socket_path"`
-	// MaxActionRangeHeights limits the maximum inclusive block range per query.
+	// MaxActionRangeHeights limits each query to this many inclusive block heights.
 	MaxActionRangeHeights int64 `mapstructure:"max_action_range_heights"`
 }
 

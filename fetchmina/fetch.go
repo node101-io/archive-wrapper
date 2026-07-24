@@ -80,7 +80,7 @@ func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 	return height, nil
 }
 
-// FetchActions returns the indexed action stream for blockHeight on the cached best chain.
+// FetchActions returns supported zkApp actions for blockHeight on the cached best chain.
 // It returns ErrBestChainBlockNotFound when the selected chain has no block at that height yet.
 func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]actions.Action, error) {
 	if blockHeight <= 0 {
