@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package actions;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/node101-io/archive-wrapper/actions;actions";
+
+enum ActionType {
+  UNSPECIFIED = 0;
+  DEPOSIT = 1;
+  WITHDRAW = 2;
+}
+
+message Action {
+  option (gogoproto.goproto_getters) = false;
+
+  int64 block_height = 1;
+  bytes fee_payer = 2;
+  ActionType action_type = 3;
+  int64 amount = 4;
+}
+
+message DbRecord {
+  option (gogoproto.goproto_getters) = false;
+
+  int64 key = 1;
+  repeated Action actions = 2;
+}

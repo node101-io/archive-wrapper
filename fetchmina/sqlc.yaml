@@ -1,0 +1,15 @@
+version: "2"
+
+sql:
+  - engine: "postgresql"
+    schema: "sql/schema.sql"
+    queries: "sql/queries.sql"
+    analyzer:
+      database: false
+    gen:
+      go:
+        package: "db"
+        out: "db"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_empty_slices: true

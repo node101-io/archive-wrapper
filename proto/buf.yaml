@@ -1,0 +1,9 @@
+version: v1
+deps:
+  - buf.build/cosmos/gogo-proto
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE
