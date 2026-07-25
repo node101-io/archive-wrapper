@@ -10,8 +10,6 @@ import (
 
 // Config holds the runtime settings loaded from the wrapper config file.
 type Config struct {
-	// ContractAddress is the Mina zkApp address whose actions are indexed.
-	ContractAddress string `mapstructure:"contract_address"`
 	// BlockHeightDatabaseKey stores the latest processed block cursor key.
 	BlockHeightDatabaseKey string `mapstructure:"block_height_database_key"`
 	// DBPath is the local LevelDB path used for indexed data.
@@ -38,7 +36,6 @@ func Load(configFile string) (Config, error) {
 		return Config{}, fmt.Errorf("unmarshal config: %w", err)
 	}
 
-	cfg.ContractAddress = strings.TrimSpace(cfg.ContractAddress)
 	cfg.BlockHeightDatabaseKey = strings.TrimSpace(cfg.BlockHeightDatabaseKey)
 	cfg.DBPath = strings.TrimSpace(cfg.DBPath)
 	cfg.GRPCListenAddress = strings.TrimSpace(cfg.GRPCListenAddress)
@@ -46,9 +43,6 @@ func Load(configFile string) (Config, error) {
 
 	if cfg.GRPCListenAddress == "" {
 		return Config{}, apperrors.ErrGRPCAddressRequired
-	}
-	if cfg.ContractAddress == "" {
-		return Config{}, apperrors.ErrContractAddressRequired
 	}
 	if cfg.BlockHeightDatabaseKey == "" {
 		return Config{}, apperrors.ErrBlockHeightDBKeyRequired

@@ -12,8 +12,8 @@ unless the deployment has an equivalent local access boundary.
 ## Requirements
 
 - Go 1.26 for building the binary.
-- A Mina chain home whose `config/app.toml` contains a positive
-  `confirmation_depth`.
+- A Mina chain home whose `config/app.toml` contains a `[bridge]` section with
+  a non-empty `contract_address` and a positive `confirmation_depth`.
 - An archive PostgreSQL database reachable through `POSTGRES_URI`.
 
 The archive database must provide the tables and relationships queried by
@@ -26,7 +26,6 @@ fields are:
 
 | Field | Purpose |
 | --- | --- |
-| `contract_address` | Mina zkApp address whose actions are indexed. |
 | `block_height_database_key` | LevelDB key for the latest processed cursor. |
 | `db_path` | Local LevelDB directory. |
 | `grpc_listen_address` | TCP address for the local query server. |
@@ -59,11 +58,11 @@ POSTGRES_URI='postgres://user:password@127.0.0.1:5432/archive?sslmode=disable' \
   --start-block-height 537276
 ```
 
-`start` reads `confirmation_depth` from
-`/path/to/validator/config/app.toml`, catches up to the archive tip minus that
-depth, and then follows the PostgreSQL `blocks_inserted` notifications. Query
-and notification connection failures are retried while the process is
-running.
+`start` reads `bridge.contract_address` and
+`bridge.confirmation_depth` from `/path/to/validator/config/app.toml`,
+catches up to the archive tip minus that depth, and then follows the
+PostgreSQL `blocks_inserted` notifications. Query and notification connection
+failures are retried while the process is running.
 
 Stop the running process through its Unix control socket:
 

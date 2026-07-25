@@ -97,12 +97,16 @@ func run(args []string, ctx context.Context,
 			return err
 		}
 
+		contractAddress, err := LoadContractAddressFromHome(*homePath)
+		if err != nil {
+			return fmt.Errorf("load chain contract address: %w", err)
+		}
 		confirmationDepth, err := LoadConfirmationDepthFromHome(*homePath)
 		if err != nil {
 			return fmt.Errorf("load chain confirmation depth: %w", err)
 		}
 
-		return runStart(ctx, cfg, *startBlockHeight, confirmationDepth, cancel, logger)
+		return runStart(ctx, cfg, *startBlockHeight, contractAddress, confirmationDepth, cancel, logger)
 
 	case "stop":
 		stopCmd := flag.NewFlagSet("stop", flag.ContinueOnError)
@@ -151,7 +155,7 @@ func run(args []string, ctx context.Context,
 	}
 }
 func runStart(ctx context.Context, cfg config.Config,
-	startBlockHeight int64, confirmationDepth int64, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
+	startBlockHeight int64, contractAddress string, confirmationDepth int64, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
 	runtimeLogger := logger.With("component", "runtime")
 
 	runtimeLogger.Info(
@@ -191,7 +195,7 @@ func runStart(ctx context.Context, cfg config.Config,
 	defer queryPool.Close()
 
 	client, err := fetchmina.NewMinaClient(
-		cfg.ContractAddress,
+		contractAddress,
 		sqlcdb.New(queryPool),
 		logger,
 	)
