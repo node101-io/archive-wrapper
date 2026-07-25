@@ -71,7 +71,7 @@ var (
 var (
 	// ErrGRPCAddressRequired reports that grpc_listen_address is missing from config.
 	ErrGRPCAddressRequired = errors.New("grpc_listen_address is required")
-	// ErrContractAddressRequired reports that contract_address is missing from config.
+	// ErrContractAddressRequired reports that contract_address is missing from app config.
 	ErrContractAddressRequired = errors.New("contract_address is required")
 	// ErrBlockHeightDBKeyRequired reports that block_height_database_key is missing from config.
 	ErrBlockHeightDBKeyRequired = errors.New("block_height_database_key is required")

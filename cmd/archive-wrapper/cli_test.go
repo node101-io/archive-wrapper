@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -14,7 +15,10 @@ import (
 
 func TestCloseControlSocketListenerPreservesReplacementSocket(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	socketPath := filepath.Join(t.TempDir(), "control.sock")
+	socketPath := filepath.Join("/tmp", fmt.Sprintf("archive-wrapper-%d.sock", time.Now().UnixNano()))
+	t.Cleanup(func() {
+		_ = os.Remove(socketPath)
+	})
 
 	listener, err := listenControlSocket(socketPath, func() {}, logger)
 	require.NoError(t, err)
