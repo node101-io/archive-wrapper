@@ -596,8 +596,13 @@ func handleControlSocketConn(c net.Conn, sockPath string, logger *slog.Logger) b
 	}
 }
 
-func probeLiveControlSocket(c net.Conn) error {
-	defer c.Close()
+func probeLiveControlSocket(c net.Conn) (retErr error) {
+
+	defer func() {
+		if err := c.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close control socket: %w", err))
+		}
+	}()
 
 	if err := c.SetDeadline(time.Now().Add(controlSocketReadTimeout)); err != nil {
 		return fmt.Errorf("set control socket probe deadline: %w", err)
