@@ -26,10 +26,14 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	grpcHealth "google.golang.org/grpc/health"
+	grpcHealthV1 "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/reflection"
 )
 
 const network = "unix"
 const notificationReconnectDelay = 2 * time.Second
+const queryGRPCServiceName = "query.Query"
 
 const (
 	controlSocketReadTimeout  = time.Second
@@ -85,8 +89,6 @@ func run(args []string, ctx context.Context,
 		if err != nil {
 			return err
 		}
-
-		// Ensure that the DB path does not exists when running start command.
 		if err := ensureDBPathDoesNotExist(cfg.DBPath); err != nil {
 			return err
 		}
@@ -213,6 +215,21 @@ func run(args []string, ctx context.Context,
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage())
 	}
 }
+
+func registerGRPCServices(grpcServer *grpc.Server, queryService query.QueryServer) *grpcHealth.Server {
+	query.RegisterQueryServer(grpcServer, queryService)
+
+	healthServer := grpcHealth.NewServer()
+	grpcHealthV1.RegisterHealthServer(grpcServer, healthServer)
+	reflection.Register(grpcServer)
+	healthServer.SetServingStatus(
+		queryGRPCServiceName,
+		grpcHealthV1.HealthCheckResponse_SERVING,
+	)
+
+	return healthServer
+}
+
 func runStart(ctx context.Context, cfg config.Config,
 	bridgeParams bridgeParams, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
 	runtimeLogger := logger.With("component", "runtime")
@@ -291,7 +308,7 @@ func runStart(ctx context.Context, cfg config.Config,
 	if err != nil {
 		return err
 	}
-	query.RegisterQueryServer(grpcServer, queryService)
+	healthServer := registerGRPCServices(grpcServer, queryService)
 
 	group, runCtx := errgroup.WithContext(ctx)
 
@@ -331,6 +348,8 @@ func runStart(ctx context.Context, cfg config.Config,
 
 	group.Go(func() error {
 		<-runCtx.Done()
+		runtimeLogger.Info("shutdown requested, updating gRPC health status")
+		healthServer.Shutdown()
 		// Let in-flight RPCs finish before the server stops.
 		runtimeLogger.Info("shutdown requested, stopping gRPC server")
 		grpcServer.GracefulStop()
