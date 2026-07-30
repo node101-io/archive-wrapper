@@ -2,12 +2,16 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/node101-io/archive-wrapper/apperrors"
+	"github.com/node101-io/archive-wrapper/database"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 // BridgeParams holds the x/bridge module params the wrapper consumes at startup.
@@ -77,4 +81,35 @@ func LoadBridgeParamsFromHome(homePath string) (BridgeParams, error) {
 		StartBlockHeight:  genesis.AppState.Bridge.Params.StartBlockHeight,
 		MaxBlockRange:     genesis.AppState.Bridge.Params.MaxBlockRange,
 	}, nil
+}
+
+// LoadLatestProcessedBlockHeight reads the persisted latest processed height cursor from LevelDB.
+func LoadLatestProcessedBlockHeight(
+	dbPath string,
+	blockHeightDatabaseKey string,
+	logger *slog.Logger,
+) (height int64, retErr error) {
+	if logger == nil {
+		return 0, apperrors.ErrNilLogger
+	}
+
+	db, err := database.NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close db: %w", err))
+		}
+	}()
+
+	height, err = db.GetBlockHeight()
+	if errors.Is(err, leveldb.ErrNotFound) {
+		return 0, err
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	return height, nil
 }

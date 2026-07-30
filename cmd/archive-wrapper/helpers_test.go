@@ -1,12 +1,16 @@
 package main
 
 import (
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/node101-io/archive-wrapper/apperrors"
+	"github.com/node101-io/archive-wrapper/database"
 	"github.com/stretchr/testify/require"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 const testBridgeContractAddress = "B62qjRDirGFRf5dvNcGzMs5oWzQ2VyNcygnoKM2MkxB9PFUp7Utdraf"
@@ -82,6 +86,34 @@ func TestLoadBridgeParamsFromHomeRejectsInvalidStartBlockHeight(t *testing.T) {
 	got, err := LoadBridgeParamsFromHome(homePath)
 	require.Equal(t, BridgeParams{}, got)
 	require.ErrorIs(t, err, apperrors.ErrStartBlockHeightRequired)
+}
+
+func TestLoadLatestProcessedBlockHeight(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dbPath := t.TempDir()
+
+	manager, err := database.NewDbManager(dbPath, "db-key", logger)
+	require.NoError(t, err)
+
+	require.NoError(t, manager.InsertBlockHeight(541307))
+	require.NoError(t, manager.Close())
+
+	got, err := LoadLatestProcessedBlockHeight(dbPath, "db-key", logger)
+	require.NoError(t, err)
+	require.Equal(t, int64(541307), got)
+}
+
+func TestLoadLatestProcessedBlockHeightReturnsNotFoundWhenCursorMissing(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dbPath := t.TempDir()
+
+	manager, err := database.NewDbManager(dbPath, "db-key", logger)
+	require.NoError(t, err)
+	require.NoError(t, manager.Close())
+
+	got, err := LoadLatestProcessedBlockHeight(dbPath, "db-key", logger)
+	require.Zero(t, got)
+	require.ErrorIs(t, err, leveldb.ErrNotFound)
 }
 
 func writeGenesis(t *testing.T, homePath, contents string) {

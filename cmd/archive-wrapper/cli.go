@@ -23,6 +23,7 @@ import (
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
 	"github.com/node101-io/archive-wrapper/indexer"
 	"github.com/node101-io/archive-wrapper/query"
+	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
@@ -90,6 +91,75 @@ func run(args []string, ctx context.Context,
 			return fmt.Errorf("load bridge params from genesis: %w", err)
 		}
 
+		return runStart(ctx, cfg, bridgeParams, cancel, logger)
+
+	case "proceed":
+		proceedCmd := flag.NewFlagSet("proceed", flag.ContinueOnError)
+
+		defaultConfigPath := os.Getenv("ARCHIVE_WRAPPER_CONFIG")
+		configPath := proceedCmd.String(
+			"config",
+			defaultConfigPath,
+			"path to configuration file",
+		)
+		homePath := proceedCmd.String(
+			"home",
+			"",
+			"path to chain home directory",
+		)
+
+		if err := proceedCmd.Parse(args[1:]); err != nil {
+			return err
+		}
+
+		if strings.TrimSpace(*configPath) == "" {
+			return fmt.Errorf("--config is required unless ARCHIVE_WRAPPER_CONFIG is set")
+		}
+		if strings.TrimSpace(*homePath) == "" {
+			return fmt.Errorf("--home is required")
+		}
+
+		cfg, err := config.Load(*configPath)
+		if err != nil {
+			return err
+		}
+
+		latestProcessedBlockHeight, err := LoadLatestProcessedBlockHeight(
+			cfg.DBPath,
+			cfg.BlockHeightDatabaseKey,
+			logger,
+		)
+		if errors.Is(err, leveldb.ErrNotFound) {
+			return fmt.Errorf("load latest processed block height: no persisted block height found in %s; run start first", cfg.DBPath)
+		}
+		if err != nil {
+			return fmt.Errorf("load latest processed block height: %w", err)
+		}
+
+		cliLogger.Info(
+			"proceed command received",
+			"config",
+			*configPath,
+			"home",
+			*homePath,
+			"latest_processed_block_height",
+			latestProcessedBlockHeight,
+		)
+		cliLogger.Info(
+			"resuming from persisted block height",
+			"block_height",
+			latestProcessedBlockHeight,
+			"db_path",
+			cfg.DBPath,
+		)
+
+		bridgeParams, err := LoadBridgeParamsFromHome(*homePath)
+		if err != nil {
+			return fmt.Errorf("load bridge params from genesis: %w", err)
+		}
+
+		// Keep the genesis start height for bounds validation; the indexer
+		// resumes from the persisted cursor automatically when it exists.
 		return runStart(ctx, cfg, bridgeParams, cancel, logger)
 
 	case "stop":
@@ -551,6 +621,7 @@ func probeLiveControlSocket(c net.Conn) error {
 func usage() string {
 	return `usage:
   archive-wrapper start --config <path> --home <path>
+  archive-wrapper proceed --config <path> --home <path>
   archive-wrapper stop [--config <path>] [--socket-path <path>]
 `
 }

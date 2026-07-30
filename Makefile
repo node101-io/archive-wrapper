@@ -6,7 +6,7 @@ export GOCACHE := $(CURDIR)/.cache/go-build
 export GOLANGCI_LINT_CACHE := $(CURDIR)/.cache/golangci-lint
 CONFIG ?= config.yaml
 
-.PHONY: ensure-cache fmt test lint build start stop
+.PHONY: ensure-cache fmt test lint build start proceed stop
 
 ensure-cache:
 	mkdir -p "$(GOCACHE)" "$(GOLANGCI_LINT_CACHE)"
@@ -27,6 +27,10 @@ build: ensure-cache
 start: build
 	@test -n "$(CHAIN_HOME)" || (echo "usage: make start CHAIN_HOME=/path/to/pulsar [CONFIG=config.yaml]" && exit 1)
 	./archive-wrapper start --config $(CONFIG) --home $(CHAIN_HOME)
+
+proceed: build
+	@test -n "$(CHAIN_HOME)" || (echo "usage: make proceed CHAIN_HOME=/path/to/pulsar [CONFIG=config.yaml]" && exit 1)
+	./archive-wrapper proceed --config $(CONFIG) --home $(CHAIN_HOME)
 
 stop:
 	./archive-wrapper stop --config $(CONFIG) $(if $(SOCKET_PATH),--socket-path $(SOCKET_PATH),)
