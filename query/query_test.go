@@ -15,7 +15,7 @@ import (
 )
 
 const blockHeightDatabaseKey = "db-key"
-const testMaxActionRangeHeights int64 = 1000
+const testMaxBlockRange int64 = 1000
 
 func TestQuery(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -63,7 +63,7 @@ func TestQuery(t *testing.T) {
 	err = manager.InsertBlockHeight(second.Key)
 	require.NoError(t, err)
 
-	q, err := NewQuery(manager, slog.New(slog.NewTextHandler(io.Discard, nil)), testMaxActionRangeHeights)
+	q, err := NewQuery(manager, slog.New(slog.NewTextHandler(io.Discard, nil)), testMaxBlockRange)
 	require.NoError(t, err)
 	got, err := q.GetActionsInRange(context.Background(), &QueryGetActionsInRangeRequest{
 		StartBlockHeight: 7,
@@ -103,7 +103,7 @@ func TestQuery_ProcessedEmptyBlockReturnsEmptyList(t *testing.T) {
 	err = manager.InsertBlockHeight(7)
 	require.NoError(t, err)
 
-	q, err := NewQuery(manager, logger, testMaxActionRangeHeights)
+	q, err := NewQuery(manager, logger, testMaxBlockRange)
 	require.NoError(t, err)
 
 	got, err := q.GetActionsInRange(context.Background(), &QueryGetActionsInRangeRequest{
@@ -128,7 +128,7 @@ func TestQuery_NoProcessedBlocksReturnsFailedPrecondition(t *testing.T) {
 		require.NoError(t, manager.Close())
 	}()
 
-	q, err := NewQuery(manager, logger, testMaxActionRangeHeights)
+	q, err := NewQuery(manager, logger, testMaxBlockRange)
 	require.NoError(t, err)
 
 	got, err := q.GetActionsInRange(context.Background(), &QueryGetActionsInRangeRequest{
@@ -159,7 +159,7 @@ func TestQuery_RangeBelowStartHeightReturnsFailedPrecondition(t *testing.T) {
 	err = manager.InsertBlockHeight(9)
 	require.NoError(t, err)
 
-	q, err := NewQuery(manager, logger, testMaxActionRangeHeights)
+	q, err := NewQuery(manager, logger, testMaxBlockRange)
 	require.NoError(t, err)
 
 	got, err := q.GetActionsInRange(context.Background(), &QueryGetActionsInRangeRequest{
@@ -187,15 +187,15 @@ func TestQuery_RangeAboveMaximumWidthReturnsInvalidArgument(t *testing.T) {
 
 	err = manager.EnsureStartBlockHeight(1)
 	require.NoError(t, err)
-	err = manager.InsertBlockHeight(testMaxActionRangeHeights + 1)
+	err = manager.InsertBlockHeight(testMaxBlockRange + 1)
 	require.NoError(t, err)
 
-	q, err := NewQuery(manager, logger, testMaxActionRangeHeights)
+	q, err := NewQuery(manager, logger, testMaxBlockRange)
 	require.NoError(t, err)
 
 	got, err := q.GetActionsInRange(context.Background(), &QueryGetActionsInRangeRequest{
 		StartBlockHeight: 1,
-		EndBlockHeight:   testMaxActionRangeHeights + 1,
+		EndBlockHeight:   testMaxBlockRange + 1,
 	})
 
 	require.Nil(t, got)
@@ -221,7 +221,7 @@ func TestQuery_CanceledContextStopsRangeScan(t *testing.T) {
 	err = manager.InsertBlockHeight(7)
 	require.NoError(t, err)
 
-	q, err := NewQuery(manager, logger, testMaxActionRangeHeights)
+	q, err := NewQuery(manager, logger, testMaxBlockRange)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
