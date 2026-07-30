@@ -6,7 +6,7 @@ confirmed best chain, stores indexed actions and cursor metadata in LevelDB,
 and exposes read-only gRPC queries for the validator application.
 
 The sidecar is intended to remain local to the validator host. The sample
-configuration binds gRPC to `127.0.0.1:9090`; keep it on a loopback address
+configuration binds gRPC to `127.0.0.1:9095`; keep it on a loopback address
 unless the deployment has an equivalent local access boundary.
 
 ## Requirements

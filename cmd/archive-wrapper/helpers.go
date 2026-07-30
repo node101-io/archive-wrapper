@@ -15,7 +15,7 @@ import (
 )
 
 // BridgeParams holds the x/bridge module params the wrapper consumes at startup.
-type BridgeParams struct {
+type bridgeParams struct {
 	ConfirmationDepth int64
 	ContractAddress   string
 	StartBlockHeight  int64
@@ -55,27 +55,27 @@ func loadGenesisFromHome(homePath string) (*genesisFile, error) {
 }
 
 // LoadBridgeParamsFromHome reads bridge params from the Pulsar genesis file.
-func LoadBridgeParamsFromHome(homePath string) (BridgeParams, error) {
+func loadBridgeParamsFromHome(homePath string) (bridgeParams, error) {
 	genesis, err := loadGenesisFromHome(homePath)
 	if err != nil {
-		return BridgeParams{}, err
+		return bridgeParams{}, err
 	}
 
 	contractAddress := strings.TrimSpace(genesis.AppState.Bridge.Params.ContractAddress)
 	if contractAddress == "" {
-		return BridgeParams{}, apperrors.ErrContractAddressRequired
+		return bridgeParams{}, apperrors.ErrContractAddressRequired
 	}
 	if genesis.AppState.Bridge.Params.ConfirmationDepth <= 0 {
-		return BridgeParams{}, apperrors.ErrConfirmationDepthRequired
+		return bridgeParams{}, apperrors.ErrConfirmationDepthRequired
 	}
 	if genesis.AppState.Bridge.Params.StartBlockHeight <= 0 {
-		return BridgeParams{}, apperrors.ErrStartBlockHeightRequired
+		return bridgeParams{}, apperrors.ErrStartBlockHeightRequired
 	}
 	if genesis.AppState.Bridge.Params.MaxBlockRange <= 0 {
-		return BridgeParams{}, apperrors.ErrMaxBlockRangeRequired
+		return bridgeParams{}, apperrors.ErrMaxBlockRangeRequired
 	}
 
-	return BridgeParams{
+	return bridgeParams{
 		ConfirmationDepth: genesis.AppState.Bridge.Params.ConfirmationDepth,
 		ContractAddress:   contractAddress,
 		StartBlockHeight:  genesis.AppState.Bridge.Params.StartBlockHeight,
@@ -84,7 +84,7 @@ func LoadBridgeParamsFromHome(homePath string) (BridgeParams, error) {
 }
 
 // LoadLatestProcessedBlockHeight reads the persisted latest processed height cursor from LevelDB.
-func LoadLatestProcessedBlockHeight(
+func loadLatestProcessedBlockHeight(
 	dbPath string,
 	blockHeightDatabaseKey string,
 	logger *slog.Logger,

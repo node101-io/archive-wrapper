@@ -30,9 +30,9 @@ func TestLoadBridgeParamsFromHome(t *testing.T) {
   }
 }`)
 
-	got, err := LoadBridgeParamsFromHome(homePath)
+	got, err := loadBridgeParamsFromHome(homePath)
 	require.NoError(t, err)
-	require.Equal(t, BridgeParams{
+	require.Equal(t, bridgeParams{
 		ConfirmationDepth: 32,
 		ContractAddress:   testBridgeContractAddress,
 		StartBlockHeight:  537276,
@@ -43,8 +43,8 @@ func TestLoadBridgeParamsFromHome(t *testing.T) {
 func TestLoadBridgeParamsFromHomeRejectsMissingGenesis(t *testing.T) {
 	homePath := t.TempDir()
 
-	got, err := LoadBridgeParamsFromHome(homePath)
-	require.Equal(t, BridgeParams{}, got)
+	got, err := loadBridgeParamsFromHome(homePath)
+	require.Equal(t, bridgeParams{}, got)
 	require.ErrorContains(t, err, "read genesis")
 }
 
@@ -63,8 +63,8 @@ func TestLoadBridgeParamsFromHomeRejectsInvalidMaxBlockRange(t *testing.T) {
   }
 }`)
 
-	got, err := LoadBridgeParamsFromHome(homePath)
-	require.Equal(t, BridgeParams{}, got)
+	got, err := loadBridgeParamsFromHome(homePath)
+	require.Equal(t, bridgeParams{}, got)
 	require.ErrorIs(t, err, apperrors.ErrMaxBlockRangeRequired)
 }
 
@@ -83,8 +83,8 @@ func TestLoadBridgeParamsFromHomeRejectsInvalidStartBlockHeight(t *testing.T) {
   }
 }`)
 
-	got, err := LoadBridgeParamsFromHome(homePath)
-	require.Equal(t, BridgeParams{}, got)
+	got, err := loadBridgeParamsFromHome(homePath)
+	require.Equal(t, bridgeParams{}, got)
 	require.ErrorIs(t, err, apperrors.ErrStartBlockHeightRequired)
 }
 
@@ -98,7 +98,7 @@ func TestLoadLatestProcessedBlockHeight(t *testing.T) {
 	require.NoError(t, manager.InsertBlockHeight(541307))
 	require.NoError(t, manager.Close())
 
-	got, err := LoadLatestProcessedBlockHeight(dbPath, "db-key", logger)
+	got, err := loadLatestProcessedBlockHeight(dbPath, "db-key", logger)
 	require.NoError(t, err)
 	require.Equal(t, int64(541307), got)
 }
@@ -111,7 +111,7 @@ func TestLoadLatestProcessedBlockHeightReturnsNotFoundWhenCursorMissing(t *testi
 	require.NoError(t, err)
 	require.NoError(t, manager.Close())
 
-	got, err := LoadLatestProcessedBlockHeight(dbPath, "db-key", logger)
+	got, err := loadLatestProcessedBlockHeight(dbPath, "db-key", logger)
 	require.Zero(t, got)
 	require.ErrorIs(t, err, leveldb.ErrNotFound)
 }

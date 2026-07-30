@@ -48,7 +48,7 @@ func NewQuery(db *database.DbManager, logger *slog.Logger, maxBlockRange int64) 
 }
 
 // GetActionsInRange returns all indexed actions for the inclusive block range.
-// It rejects ranges outside the indexed bounds and ranges wider than maxActionRangeHeights.
+// It rejects ranges outside the indexed bounds and ranges wider than maxBlockRange.
 func (q *Query) GetActionsInRange(
 	ctx context.Context,
 	in *QueryGetActionsInRangeRequest,

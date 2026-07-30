@@ -86,7 +86,7 @@ func run(args []string, ctx context.Context,
 			return err
 		}
 
-		bridgeParams, err := LoadBridgeParamsFromHome(*homePath)
+		bridgeParams, err := loadBridgeParamsFromHome(*homePath)
 		if err != nil {
 			return fmt.Errorf("load bridge params from genesis: %w", err)
 		}
@@ -124,7 +124,7 @@ func run(args []string, ctx context.Context,
 			return err
 		}
 
-		latestProcessedBlockHeight, err := LoadLatestProcessedBlockHeight(
+		latestProcessedBlockHeight, err := loadLatestProcessedBlockHeight(
 			cfg.DBPath,
 			cfg.BlockHeightDatabaseKey,
 			logger,
@@ -153,7 +153,7 @@ func run(args []string, ctx context.Context,
 			cfg.DBPath,
 		)
 
-		bridgeParams, err := LoadBridgeParamsFromHome(*homePath)
+		bridgeParams, err := loadBridgeParamsFromHome(*homePath)
 		if err != nil {
 			return fmt.Errorf("load bridge params from genesis: %w", err)
 		}
@@ -209,7 +209,7 @@ func run(args []string, ctx context.Context,
 	}
 }
 func runStart(ctx context.Context, cfg config.Config,
-	bridgeParams BridgeParams, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
+	bridgeParams bridgeParams, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
 	runtimeLogger := logger.With("component", "runtime")
 
 	runtimeLogger.Info(
@@ -597,7 +597,6 @@ func handleControlSocketConn(c net.Conn, sockPath string, logger *slog.Logger) b
 }
 
 func probeLiveControlSocket(c net.Conn) (retErr error) {
-
 	defer func() {
 		if err := c.Close(); err != nil {
 			retErr = errors.Join(retErr, fmt.Errorf("close control socket: %w", err))
