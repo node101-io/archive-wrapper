@@ -15,13 +15,13 @@ import (
 
 // Query serves gRPC reads against the locally indexed LevelDB data.
 type Query struct {
-	logger                *slog.Logger
-	db                    *database.DbManager
-	maxActionRangeHeights int64
+	logger        *slog.Logger
+	db            *database.DbManager
+	maxBlockRange int64
 }
 
 // NewQuery constructs a Query service with the configured range guard.
-func NewQuery(db *database.DbManager, logger *slog.Logger, maxActionRangeHeights int64) (*Query, error) {
+func NewQuery(db *database.DbManager, logger *slog.Logger, maxBlockRange int64) (*Query, error) {
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
 	}
@@ -33,17 +33,17 @@ func NewQuery(db *database.DbManager, logger *slog.Logger, maxActionRangeHeights
 	if err := db.Validate(); err != nil {
 		return nil, err
 	}
-	if maxActionRangeHeights <= 0 {
-		return nil, apperrors.ErrMaxActionRangeRequired
+	if maxBlockRange <= 0 {
+		return nil, apperrors.ErrMaxBlockRangeRequired
 	}
 
 	logger = logger.With("component", "query")
-	logger.Info("query service initialized", "max_action_range_heights", maxActionRangeHeights)
+	logger.Info("query service initialized", "max_block_range", maxBlockRange)
 
 	return &Query{
-		logger:                logger,
-		db:                    db,
-		maxActionRangeHeights: maxActionRangeHeights,
+		logger:        logger,
+		db:            db,
+		maxBlockRange: maxBlockRange,
 	}, nil
 }
 
@@ -102,11 +102,11 @@ func (q *Query) GetActionsInRange(
 		)
 	}
 
-	if in.EndBlockHeight-in.StartBlockHeight >= q.maxActionRangeHeights {
+	if in.EndBlockHeight-in.StartBlockHeight >= q.maxBlockRange {
 		return nil, status.Errorf(
 			codes.InvalidArgument,
 			"requested block range exceeds maximum width of %d heights",
-			q.maxActionRangeHeights,
+			q.maxBlockRange,
 		)
 	}
 

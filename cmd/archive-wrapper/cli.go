@@ -49,12 +49,6 @@ func run(args []string, ctx context.Context,
 	case "start":
 		startCmd := flag.NewFlagSet("start", flag.ContinueOnError)
 
-		startBlockHeight := startCmd.Int64(
-			"start-block-height",
-			0,
-			"first block height to start indexing from",
-		)
-
 		defaultConfigPath := os.Getenv("ARCHIVE_WRAPPER_CONFIG")
 		configPath := startCmd.String(
 			"config",
@@ -74,10 +68,6 @@ func run(args []string, ctx context.Context,
 		if strings.TrimSpace(*configPath) == "" {
 			return fmt.Errorf("--config is required unless ARCHIVE_WRAPPER_CONFIG is set")
 		}
-
-		if *startBlockHeight <= 0 {
-			return fmt.Errorf("--start-block-height is required and must be greater than 0")
-		}
 		if strings.TrimSpace(*homePath) == "" {
 			return fmt.Errorf("--home is required")
 		}
@@ -88,8 +78,6 @@ func run(args []string, ctx context.Context,
 			*configPath,
 			"home",
 			*homePath,
-			"start_block_height",
-			*startBlockHeight,
 		)
 
 		cfg, err := config.Load(*configPath)
@@ -97,16 +85,12 @@ func run(args []string, ctx context.Context,
 			return err
 		}
 
-		contractAddress, err := LoadContractAddressFromHome(*homePath)
+		bridgeParams, err := LoadBridgeParamsFromHome(*homePath)
 		if err != nil {
-			return fmt.Errorf("load chain contract address: %w", err)
-		}
-		confirmationDepth, err := LoadConfirmationDepthFromHome(*homePath)
-		if err != nil {
-			return fmt.Errorf("load chain confirmation depth: %w", err)
+			return fmt.Errorf("load bridge params from genesis: %w", err)
 		}
 
-		return runStart(ctx, cfg, *startBlockHeight, contractAddress, confirmationDepth, cancel, logger)
+		return runStart(ctx, cfg, bridgeParams, cancel, logger)
 
 	case "stop":
 		stopCmd := flag.NewFlagSet("stop", flag.ContinueOnError)
@@ -155,19 +139,23 @@ func run(args []string, ctx context.Context,
 	}
 }
 func runStart(ctx context.Context, cfg config.Config,
-	startBlockHeight int64, contractAddress string, confirmationDepth int64, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
+	bridgeParams BridgeParams, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
 	runtimeLogger := logger.With("component", "runtime")
 
 	runtimeLogger.Info(
 		"starting archive wrapper",
 		"start_block_height",
-		startBlockHeight,
+		bridgeParams.StartBlockHeight,
 		"grpc_listen_address",
 		cfg.GRPCListenAddress,
 		"control_socket_path",
 		cfg.ControlSocketPath,
 		"confirmation_depth",
-		confirmationDepth,
+		bridgeParams.ConfirmationDepth,
+		"contract_address",
+		bridgeParams.ContractAddress,
+		"max_block_range",
+		bridgeParams.MaxBlockRange,
 		"db_path",
 		cfg.DBPath,
 	)
@@ -195,7 +183,7 @@ func runStart(ctx context.Context, cfg config.Config,
 	defer queryPool.Close()
 
 	client, err := fetchmina.NewMinaClient(
-		contractAddress,
+		bridgeParams.ContractAddress,
 		sqlcdb.New(queryPool),
 		logger,
 	)
@@ -224,7 +212,7 @@ func runStart(ctx context.Context, cfg config.Config,
 	}()
 
 	grpcServer := grpc.NewServer()
-	queryService, err := query.NewQuery(db, logger, cfg.MaxActionRangeHeights)
+	queryService, err := query.NewQuery(db, logger, bridgeParams.MaxBlockRange)
 	if err != nil {
 		return err
 	}
@@ -240,8 +228,8 @@ func runStart(ctx context.Context, cfg config.Config,
 			postgresURI,
 			client,
 			db,
-			startBlockHeight,
-			confirmationDepth,
+			bridgeParams.StartBlockHeight,
+			bridgeParams.ConfirmationDepth,
 			logger,
 		)
 		if err != nil {
@@ -562,7 +550,7 @@ func probeLiveControlSocket(c net.Conn) error {
 
 func usage() string {
 	return `usage:
-  archive-wrapper start --config <path> --home <path> --start-block-height <height>
+  archive-wrapper start --config <path> --home <path>
   archive-wrapper stop [--config <path>] [--socket-path <path>]
 `
 }

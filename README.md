@@ -12,8 +12,10 @@ unless the deployment has an equivalent local access boundary.
 ## Requirements
 
 - Go 1.26 for building the binary.
-- A Mina chain home whose `config/app.toml` contains a `[bridge]` section with
-  a non-empty `contract_address` and a positive `confirmation_depth`.
+- A Pulsar node home whose `config/genesis.json` contains `app_state.bridge.params`.
+- A Pulsar genesis whose `bridge` module params contain a non-empty
+  `contract_address`, a positive `confirmation_depth`, and a positive
+  `max_block_range`, plus a positive `start_block_height`.
 - An archive PostgreSQL database reachable through `POSTGRES_URI`.
 
 The archive database must provide the tables and relationships queried by
@@ -30,14 +32,14 @@ fields are:
 | `db_path` | Local LevelDB directory. |
 | `grpc_listen_address` | TCP address for the local query server. |
 | `control_socket_path` | Unix socket used by the `stop` command. |
-| `max_action_range_heights` | Maximum number of inclusive block heights accepted by one range query. |
 
-The first start persists the requested `--start-block-height` as the earliest
-indexed height. Later starts must use the same value with the existing LevelDB
-directory. The latest cursor is advanced only after a block has been fetched
-successfully; action-bearing blocks are stored before the cursor update. A
-missing best-chain block or a temporary PostgreSQL failure leaves the cursor
-available for retry after restart or reconnection.
+The first start persists the `bridge.start_block_height` value loaded from
+Pulsar genesis as the earliest indexed height. Later starts must see the same
+genesis value when reusing an existing LevelDB directory. The latest cursor is
+advanced only after a block has been fetched successfully; action-bearing
+blocks are stored before the cursor update. A missing best-chain block or a
+temporary PostgreSQL failure leaves the cursor available for retry after
+restart or reconnection.
 
 ## Build and run
 
@@ -47,22 +49,21 @@ Build the pure-Go binary with:
 make build
 ```
 
-Start the sidecar by providing the validator chain home and the first height
-to index:
+Start the sidecar by providing the validator chain home:
 
 ```sh
 POSTGRES_URI='postgres://user:password@127.0.0.1:5432/archive?sslmode=disable' \
   ./archive-wrapper start \
   --config config.yaml \
-  --home /path/to/validator \
-  --start-block-height 537276
+  --home /path/to/validator
 ```
 
-`start` reads `bridge.contract_address` and
-`bridge.confirmation_depth` from `/path/to/validator/config/app.toml`,
-catches up to the archive tip minus that depth, and then follows the
-PostgreSQL `blocks_inserted` notifications. Query and notification connection
-failures are retried while the process is running.
+`start` reads `bridge.contract_address`, `bridge.confirmation_depth`,
+`bridge.start_block_height`, and `bridge.max_block_range` from
+`/path/to/validator/config/genesis.json`, catches up to the archive tip minus
+that depth, and then follows the PostgreSQL `blocks_inserted` notifications.
+Query and notification connection failures are retried while the process is
+running.
 
 Stop the running process through its Unix control socket:
 
@@ -94,7 +95,8 @@ The query service is defined in
   local LevelDB store.
 - `GetActionsInRange` returns `DEPOSIT` and `WITHDRAW` actions for an inclusive
   indexed range. The requested range must stay within the persisted earliest
-  and latest indexed heights, and cannot exceed `max_action_range_heights`.
+  and latest indexed heights, and cannot exceed the `bridge.max_block_range`
+  value loaded from Pulsar genesis at startup.
 
 Blocks with no supported actions are still recorded by advancing the cursor.
 The gRPC endpoint has no public authentication or authorization layer, so it

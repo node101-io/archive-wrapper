@@ -25,9 +25,8 @@ build: ensure-cache
 	go build -tags=$(GO_BUILD_TAGS) -o archive-wrapper ./cmd/archive-wrapper
 
 start: build
-	@test -n "$(START_BLOCK_HEIGHT)" || (echo "usage: make start START_BLOCK_HEIGHT=537276 CHAIN_HOME=/path/to/pulsar [CONFIG=config.yaml]" && exit 1)
-	@test -n "$(CHAIN_HOME)" || (echo "usage: make start START_BLOCK_HEIGHT=537276 CHAIN_HOME=/path/to/pulsar [CONFIG=config.yaml]" && exit 1)
-	./archive-wrapper start --config $(CONFIG) --home $(CHAIN_HOME) --start-block-height $(START_BLOCK_HEIGHT)
+	@test -n "$(CHAIN_HOME)" || (echo "usage: make start CHAIN_HOME=/path/to/pulsar [CONFIG=config.yaml]" && exit 1)
+	./archive-wrapper start --config $(CONFIG) --home $(CHAIN_HOME)
 
 stop:
 	./archive-wrapper stop --config $(CONFIG) $(if $(SOCKET_PATH),--socket-path $(SOCKET_PATH),)

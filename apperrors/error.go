@@ -71,7 +71,7 @@ var (
 var (
 	// ErrGRPCAddressRequired reports that grpc_listen_address is missing from config.
 	ErrGRPCAddressRequired = errors.New("grpc_listen_address is required")
-	// ErrContractAddressRequired reports that contract_address is missing from app config.
+	// ErrContractAddressRequired reports that contract_address is missing from bridge params.
 	ErrContractAddressRequired = errors.New("contract_address is required")
 	// ErrBlockHeightDBKeyRequired reports that block_height_database_key is missing from config.
 	ErrBlockHeightDBKeyRequired = errors.New("block_height_database_key is required")
@@ -79,8 +79,10 @@ var (
 	ErrDBPathRequired = errors.New("db_path is required")
 	// ErrControlSocketPathRequired reports that the control socket path is missing from config.
 	ErrControlSocketPathRequired = errors.New("control socket path is required")
-	// ErrConfirmationDepthRequired reports that confirmation_depth is missing or non-positive.
+	// ErrConfirmationDepthRequired reports that confirmation_depth is missing or non-positive in bridge params.
 	ErrConfirmationDepthRequired = errors.New("confirmation_depth is required and must be greater than 0")
-	// ErrMaxActionRangeRequired reports that max_action_range_heights is missing or non-positive.
-	ErrMaxActionRangeRequired = errors.New("max_action_range_heights is required and must be greater than 0")
+	// ErrStartBlockHeightRequired reports that start_block_height is missing or non-positive in bridge params.
+	ErrStartBlockHeightRequired = errors.New("start_block_height is required and must be greater than 0")
+	// ErrMaxBlockRangeRequired reports that max_block_range is missing or non-positive in bridge params.
+	ErrMaxBlockRangeRequired = errors.New("max_block_range is required and must be greater than 0")
 )
