@@ -113,3 +113,20 @@ func loadLatestProcessedBlockHeight(
 
 	return height, nil
 }
+
+func ensureDBPathDoesNotExist(dbPath string) error {
+	dbPath = strings.TrimSpace(dbPath)
+	if dbPath == "" {
+		return apperrors.ErrDBPathRequired
+	}
+
+	_, err := os.Stat(dbPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat db path: %w", err)
+	}
+
+	return fmt.Errorf("%w: %s (use 'make proceed' to resume)", apperrors.ErrDBAlreadyExists, dbPath)
+}

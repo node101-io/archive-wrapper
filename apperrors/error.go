@@ -77,6 +77,8 @@ var (
 	ErrBlockHeightDBKeyRequired = errors.New("block_height_database_key is required")
 	// ErrDBPathRequired reports that db_path is missing from config.
 	ErrDBPathRequired = errors.New("db_path is required")
+	// ErrDBAlreadyExists reports that start was asked to use an existing LevelDB path.
+	ErrDBAlreadyExists = errors.New("db already exists")
 	// ErrControlSocketPathRequired reports that the control socket path is missing from config.
 	ErrControlSocketPathRequired = errors.New("control socket path is required")
 	// ErrConfirmationDepthRequired reports that confirmation_depth is missing or non-positive in bridge params.

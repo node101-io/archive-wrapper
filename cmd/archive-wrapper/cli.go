@@ -86,6 +86,11 @@ func run(args []string, ctx context.Context,
 			return err
 		}
 
+		// Ensure that the DB path does not exists when running start command.
+		if err := ensureDBPathDoesNotExist(cfg.DBPath); err != nil {
+			return err
+		}
+
 		bridgeParams, err := loadBridgeParamsFromHome(*homePath)
 		if err != nil {
 			return fmt.Errorf("load bridge params from genesis: %w", err)
