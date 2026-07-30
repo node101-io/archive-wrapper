@@ -1,5 +1,4 @@
 block_height_database_key: "archive-wrapper"
-db_path: "./data/archive-wrapper"
-grpc_listen_address: "127.0.0.1:9090"
+db_path: "./v2/data/archive-wrapper"
+grpc_listen_address: "127.0.0.1:9095"
 control_socket_path: "/tmp/archive-wrapper-mainnet.sock"
-max_action_range_heights: 1000

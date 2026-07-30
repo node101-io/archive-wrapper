@@ -18,8 +18,6 @@ type Config struct {
 	GRPCListenAddress string `mapstructure:"grpc_listen_address"`
 	// ControlSocketPath is the unix socket path used by start and stop commands.
 	ControlSocketPath string `mapstructure:"control_socket_path"`
-	// MaxActionRangeHeights limits each query to this many inclusive block heights.
-	MaxActionRangeHeights int64 `mapstructure:"max_action_range_heights"`
 }
 
 // Load reads configFile, normalizes string fields, and validates required values.
@@ -52,9 +50,6 @@ func Load(configFile string) (Config, error) {
 	}
 	if cfg.ControlSocketPath == "" {
 		return Config{}, apperrors.ErrControlSocketPathRequired
-	}
-	if cfg.MaxActionRangeHeights <= 0 {
-		return Config{}, apperrors.ErrMaxActionRangeRequired
 	}
 
 	return cfg, nil

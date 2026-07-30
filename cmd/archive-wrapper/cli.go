@@ -23,6 +23,7 @@ import (
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
 	"github.com/node101-io/archive-wrapper/indexer"
 	"github.com/node101-io/archive-wrapper/query"
+	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
@@ -49,12 +50,6 @@ func run(args []string, ctx context.Context,
 	case "start":
 		startCmd := flag.NewFlagSet("start", flag.ContinueOnError)
 
-		startBlockHeight := startCmd.Int64(
-			"start-block-height",
-			0,
-			"first block height to start indexing from",
-		)
-
 		defaultConfigPath := os.Getenv("ARCHIVE_WRAPPER_CONFIG")
 		configPath := startCmd.String(
 			"config",
@@ -74,10 +69,6 @@ func run(args []string, ctx context.Context,
 		if strings.TrimSpace(*configPath) == "" {
 			return fmt.Errorf("--config is required unless ARCHIVE_WRAPPER_CONFIG is set")
 		}
-
-		if *startBlockHeight <= 0 {
-			return fmt.Errorf("--start-block-height is required and must be greater than 0")
-		}
 		if strings.TrimSpace(*homePath) == "" {
 			return fmt.Errorf("--home is required")
 		}
@@ -88,8 +79,6 @@ func run(args []string, ctx context.Context,
 			*configPath,
 			"home",
 			*homePath,
-			"start_block_height",
-			*startBlockHeight,
 		)
 
 		cfg, err := config.Load(*configPath)
@@ -97,16 +86,86 @@ func run(args []string, ctx context.Context,
 			return err
 		}
 
-		contractAddress, err := LoadContractAddressFromHome(*homePath)
-		if err != nil {
-			return fmt.Errorf("load chain contract address: %w", err)
-		}
-		confirmationDepth, err := LoadConfirmationDepthFromHome(*homePath)
-		if err != nil {
-			return fmt.Errorf("load chain confirmation depth: %w", err)
+		// Ensure that the DB path does not exists when running start command.
+		if err := ensureDBPathDoesNotExist(cfg.DBPath); err != nil {
+			return err
 		}
 
-		return runStart(ctx, cfg, *startBlockHeight, contractAddress, confirmationDepth, cancel, logger)
+		bridgeParams, err := loadBridgeParamsFromHome(*homePath)
+		if err != nil {
+			return fmt.Errorf("load bridge params from genesis: %w", err)
+		}
+
+		return runStart(ctx, cfg, bridgeParams, cancel, logger)
+
+	case "proceed":
+		proceedCmd := flag.NewFlagSet("proceed", flag.ContinueOnError)
+
+		defaultConfigPath := os.Getenv("ARCHIVE_WRAPPER_CONFIG")
+		configPath := proceedCmd.String(
+			"config",
+			defaultConfigPath,
+			"path to configuration file",
+		)
+		homePath := proceedCmd.String(
+			"home",
+			"",
+			"path to chain home directory",
+		)
+
+		if err := proceedCmd.Parse(args[1:]); err != nil {
+			return err
+		}
+
+		if strings.TrimSpace(*configPath) == "" {
+			return fmt.Errorf("--config is required unless ARCHIVE_WRAPPER_CONFIG is set")
+		}
+		if strings.TrimSpace(*homePath) == "" {
+			return fmt.Errorf("--home is required")
+		}
+
+		cfg, err := config.Load(*configPath)
+		if err != nil {
+			return err
+		}
+
+		latestProcessedBlockHeight, err := loadLatestProcessedBlockHeight(
+			cfg.DBPath,
+			cfg.BlockHeightDatabaseKey,
+			logger,
+		)
+		if errors.Is(err, leveldb.ErrNotFound) {
+			return fmt.Errorf("load latest processed block height: no persisted block height found in %s; run start first", cfg.DBPath)
+		}
+		if err != nil {
+			return fmt.Errorf("load latest processed block height: %w", err)
+		}
+
+		cliLogger.Info(
+			"proceed command received",
+			"config",
+			*configPath,
+			"home",
+			*homePath,
+			"latest_processed_block_height",
+			latestProcessedBlockHeight,
+		)
+		cliLogger.Info(
+			"resuming from persisted block height",
+			"block_height",
+			latestProcessedBlockHeight,
+			"db_path",
+			cfg.DBPath,
+		)
+
+		bridgeParams, err := loadBridgeParamsFromHome(*homePath)
+		if err != nil {
+			return fmt.Errorf("load bridge params from genesis: %w", err)
+		}
+
+		// Keep the genesis start height for bounds validation; the indexer
+		// resumes from the persisted cursor automatically when it exists.
+		return runStart(ctx, cfg, bridgeParams, cancel, logger)
 
 	case "stop":
 		stopCmd := flag.NewFlagSet("stop", flag.ContinueOnError)
@@ -155,19 +214,23 @@ func run(args []string, ctx context.Context,
 	}
 }
 func runStart(ctx context.Context, cfg config.Config,
-	startBlockHeight int64, contractAddress string, confirmationDepth int64, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
+	bridgeParams bridgeParams, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
 	runtimeLogger := logger.With("component", "runtime")
 
 	runtimeLogger.Info(
 		"starting archive wrapper",
 		"start_block_height",
-		startBlockHeight,
+		bridgeParams.StartBlockHeight,
 		"grpc_listen_address",
 		cfg.GRPCListenAddress,
 		"control_socket_path",
 		cfg.ControlSocketPath,
 		"confirmation_depth",
-		confirmationDepth,
+		bridgeParams.ConfirmationDepth,
+		"contract_address",
+		bridgeParams.ContractAddress,
+		"max_block_range",
+		bridgeParams.MaxBlockRange,
 		"db_path",
 		cfg.DBPath,
 	)
@@ -195,7 +258,7 @@ func runStart(ctx context.Context, cfg config.Config,
 	defer queryPool.Close()
 
 	client, err := fetchmina.NewMinaClient(
-		contractAddress,
+		bridgeParams.ContractAddress,
 		sqlcdb.New(queryPool),
 		logger,
 	)
@@ -224,7 +287,7 @@ func runStart(ctx context.Context, cfg config.Config,
 	}()
 
 	grpcServer := grpc.NewServer()
-	queryService, err := query.NewQuery(db, logger, cfg.MaxActionRangeHeights)
+	queryService, err := query.NewQuery(db, logger, bridgeParams.MaxBlockRange)
 	if err != nil {
 		return err
 	}
@@ -240,8 +303,8 @@ func runStart(ctx context.Context, cfg config.Config,
 			postgresURI,
 			client,
 			db,
-			startBlockHeight,
-			confirmationDepth,
+			bridgeParams.StartBlockHeight,
+			bridgeParams.ConfirmationDepth,
 			logger,
 		)
 		if err != nil {
@@ -538,8 +601,12 @@ func handleControlSocketConn(c net.Conn, sockPath string, logger *slog.Logger) b
 	}
 }
 
-func probeLiveControlSocket(c net.Conn) error {
-	defer c.Close()
+func probeLiveControlSocket(c net.Conn) (retErr error) {
+	defer func() {
+		if err := c.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close control socket: %w", err))
+		}
+	}()
 
 	if err := c.SetDeadline(time.Now().Add(controlSocketReadTimeout)); err != nil {
 		return fmt.Errorf("set control socket probe deadline: %w", err)
@@ -562,7 +629,8 @@ func probeLiveControlSocket(c net.Conn) error {
 
 func usage() string {
 	return `usage:
-  archive-wrapper start --config <path> --home <path> --start-block-height <height>
+  archive-wrapper start --config <path> --home <path>
+  archive-wrapper proceed --config <path> --home <path>
   archive-wrapper stop [--config <path>] [--socket-path <path>]
 `
 }
