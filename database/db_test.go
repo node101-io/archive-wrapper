@@ -155,3 +155,111 @@ func TestDbManagerEnsureStartBlockHeightRejectsInvalidBounds(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, hasStartHeight)
 }
+
+func TestDbManagerEnsureDeploymentMetadataPersistsAndAcceptsMatch(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dbPath := t.TempDir()
+	metadata := testDeploymentMetadata()
+
+	manager, err := NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	require.NoError(t, manager.EnsureDeploymentMetadata("archive-wrapper:deployment", metadata))
+	require.NoError(t, manager.Close())
+
+	manager, err = NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
+
+	require.NoError(t, manager.EnsureDeploymentMetadata("archive-wrapper:deployment", metadata))
+}
+
+func TestDbManagerEnsureDeploymentMetadataRejectsMismatch(t *testing.T) {
+	want := testDeploymentMetadata()
+	tests := []struct {
+		name   string
+		mutate func(*DeploymentMetadata)
+	}{
+		{
+			name: "schema version",
+			mutate: func(metadata *DeploymentMetadata) {
+				metadata.SchemaVersion++
+			},
+		},
+		{
+			name: "Mina network",
+			mutate: func(metadata *DeploymentMetadata) {
+				metadata.MinaNetworkID = "mainnet"
+			},
+		},
+		{
+			name: "contract address",
+			mutate: func(metadata *DeploymentMetadata) {
+				metadata.ContractAddress = "B62qDifferentContract"
+			},
+		},
+		{
+			name: "start height",
+			mutate: func(metadata *DeploymentMetadata) {
+				metadata.StartHeight++
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+			require.NoError(t, err)
+			defer func() {
+				require.NoError(t, manager.Close())
+			}()
+
+			require.NoError(t, manager.EnsureDeploymentMetadata("archive-wrapper:deployment", want))
+
+			got := want
+			tt.mutate(&got)
+			err = manager.EnsureDeploymentMetadata("archive-wrapper:deployment", got)
+			require.ErrorIs(t, err, apperrors.ErrDeploymentMetadataMismatch)
+		})
+	}
+}
+
+func TestDbManagerEnsureDeploymentMetadataRejectsIndexedDatabaseWithoutMetadata(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
+
+	require.NoError(t, manager.InsertBlockHeight(10))
+
+	err = manager.EnsureDeploymentMetadata("archive-wrapper:deployment", testDeploymentMetadata())
+	require.ErrorIs(t, err, apperrors.ErrDeploymentMetadataMissing)
+}
+
+func TestDbManagerEnsureDeploymentMetadataAllowsInitializedDatabaseWithoutCursor(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
+
+	require.NoError(t, manager.EnsureStartBlockHeight(10))
+	require.NoError(t, manager.EnsureDeploymentMetadata(
+		"archive-wrapper:deployment",
+		testDeploymentMetadata(),
+	))
+}
+
+func testDeploymentMetadata() DeploymentMetadata {
+	return DeploymentMetadata{
+		SchemaVersion:   1,
+		MinaNetworkID:   "testnet",
+		ContractAddress: "B62qContract",
+		StartHeight:     10,
+	}
+}
