@@ -32,14 +32,17 @@ fields are:
 | `db_path` | Local LevelDB directory. |
 | `grpc_listen_address` | TCP address for the local query server. |
 | `control_socket_path` | Unix socket used by the `stop` command. |
+| `deployment_metadata_key` | LevelDB key used to store deployment identity. |
+| `deployment_metadata.schema_version` | Stored deployment metadata schema version. |
+| `deployment_metadata.mina_network_id` | Mina network whose archive database is indexed. |
 
-The first start persists the `bridge.start_block_height` value loaded from
-Pulsar genesis as the earliest indexed height. Later starts must see the same
-genesis value when reusing an existing LevelDB directory. The latest cursor is
-advanced only after a block has been fetched successfully; action-bearing
-blocks are stored before the cursor update. A missing best-chain block or a
-temporary PostgreSQL failure leaves the cursor available for retry after
-restart or reconnection.
+The first start binds the LevelDB database to its schema version, Mina network,
+contract address, and genesis start height. `proceed` requires those values to
+match before connecting to PostgreSQL. To change deployment identity, use a
+new `db_path` and run `start`. The latest cursor is advanced only after a block
+has been fetched successfully; action-bearing blocks are stored before the
+cursor update. A missing best-chain block or a temporary PostgreSQL failure
+leaves the cursor available for retry after restart or reconnection.
 
 ## Build and run
 

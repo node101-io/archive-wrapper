@@ -23,6 +23,10 @@ var (
 	ErrBlockHeightMustBeBiggerThanZero = errors.New("block height must be bigger than zero")
 	// ErrInvalidKey reports that a stored block record key does not match its action heights.
 	ErrInvalidKey = errors.New("invalid key")
+	// ErrDeploymentMetadataMissing reports indexed state that has no deployment identity.
+	ErrDeploymentMetadataMissing = errors.New("deployment metadata is missing")
+	// ErrDeploymentMetadataMismatch reports an attempt to reuse a DB for another deployment.
+	ErrDeploymentMetadataMismatch = errors.New("deployment metadata does not match")
 )
 
 var (
@@ -81,6 +85,12 @@ var (
 	ErrDBAlreadyExists = errors.New("db already exists")
 	// ErrControlSocketPathRequired reports that the control socket path is missing from config.
 	ErrControlSocketPathRequired = errors.New("control socket path is required")
+	// ErrDeploymentMetadataKeyRequired reports that the deployment metadata key is missing from config.
+	ErrDeploymentMetadataKeyRequired = errors.New("deployment metadata database key is required")
+	// ErrDeploymentSchemaVersionRequired reports that the deployment schema version is missing from config.
+	ErrDeploymentSchemaVersionRequired = errors.New("deployment schema version is required")
+	// ErrMinaNetworkIDRequired reports that mina_network_id is missing from config.
+	ErrMinaNetworkIDRequired = errors.New("mina_network_id is required")
 	// ErrConfirmationDepthRequired reports that confirmation_depth is missing or non-positive in bridge params.
 	ErrConfirmationDepthRequired = errors.New("confirmation_depth is required and must be greater than 0")
 	// ErrStartBlockHeightRequired reports that start_block_height is missing or non-positive in bridge params.

@@ -239,6 +239,9 @@ func registerGRPCServices(grpcServer *grpc.Server, queryService query.QueryServe
 func runStart(ctx context.Context, cfg config.Config,
 	bridgeParams bridgeParams, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
 	runtimeLogger := logger.With("component", "runtime")
+	// Complete deployment metadata with canonical genesis values.
+	cfg.DeploymentMetadata.ContractAddress = bridgeParams.ContractAddress
+	cfg.DeploymentMetadata.StartHeight = bridgeParams.StartBlockHeight
 
 	runtimeLogger.Info(
 		"starting archive wrapper",
@@ -252,11 +255,27 @@ func runStart(ctx context.Context, cfg config.Config,
 		bridgeParams.ConfirmationDepth,
 		"contract_address",
 		bridgeParams.ContractAddress,
+		"mina_network_id",
+		cfg.DeploymentMetadata.MinaNetworkID,
 		"max_block_range",
 		bridgeParams.MaxBlockRange,
 		"db_path",
 		cfg.DBPath,
 	)
+
+	db, err := database.NewDbManager(cfg.DBPath, cfg.BlockHeightDatabaseKey, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close db: %w", err))
+		}
+	}()
+
+	if err := db.EnsureDeploymentMetadata(cfg.DeploymentMetadataKey, cfg.DeploymentMetadata); err != nil {
+		return err
+	}
 
 	ln, err := listenControlSocket(cfg.ControlSocketPath, cancel, logger)
 	if err != nil {
@@ -288,16 +307,6 @@ func runStart(ctx context.Context, cfg config.Config,
 	if err != nil {
 		return err
 	}
-
-	db, err := database.NewDbManager(cfg.DBPath, cfg.BlockHeightDatabaseKey, logger)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("close db: %w", err))
-		}
-	}()
 
 	grpcListener, err := net.Listen("tcp", cfg.GRPCListenAddress)
 	if err != nil {

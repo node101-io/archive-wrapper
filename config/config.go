@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/node101-io/archive-wrapper/apperrors"
+	"github.com/node101-io/archive-wrapper/database"
 	"github.com/spf13/viper"
 )
 
@@ -18,6 +19,10 @@ type Config struct {
 	GRPCListenAddress string `mapstructure:"grpc_listen_address"`
 	// ControlSocketPath is the unix socket path used by start and stop commands.
 	ControlSocketPath string `mapstructure:"control_socket_path"`
+	// DeploymentMetadataKey stores deployment identity in LevelDB.
+	DeploymentMetadataKey string `mapstructure:"deployment_metadata_key"`
+	// DeploymentMetadata identifies the history stored in the configured database.
+	DeploymentMetadata database.DeploymentMetadata `mapstructure:"deployment_metadata"`
 }
 
 // Load reads configFile, normalizes string fields, and validates required values.
@@ -38,6 +43,8 @@ func Load(configFile string) (Config, error) {
 	cfg.DBPath = strings.TrimSpace(cfg.DBPath)
 	cfg.GRPCListenAddress = strings.TrimSpace(cfg.GRPCListenAddress)
 	cfg.ControlSocketPath = strings.TrimSpace(cfg.ControlSocketPath)
+	cfg.DeploymentMetadataKey = strings.TrimSpace(cfg.DeploymentMetadataKey)
+	cfg.DeploymentMetadata.MinaNetworkID = strings.TrimSpace(cfg.DeploymentMetadata.MinaNetworkID)
 
 	if cfg.GRPCListenAddress == "" {
 		return Config{}, apperrors.ErrGRPCAddressRequired
@@ -50,6 +57,15 @@ func Load(configFile string) (Config, error) {
 	}
 	if cfg.ControlSocketPath == "" {
 		return Config{}, apperrors.ErrControlSocketPathRequired
+	}
+	if cfg.DeploymentMetadataKey == "" {
+		return Config{}, apperrors.ErrDeploymentMetadataKeyRequired
+	}
+	if cfg.DeploymentMetadata.SchemaVersion == 0 {
+		return Config{}, apperrors.ErrDeploymentSchemaVersionRequired
+	}
+	if cfg.DeploymentMetadata.MinaNetworkID == "" {
+		return Config{}, apperrors.ErrMinaNetworkIDRequired
 	}
 
 	return cfg, nil
