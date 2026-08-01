@@ -111,13 +111,30 @@ func TestRunReconcilesMissingHeightsFromNotificationAndSkipsDuplicateOrOutOfOrde
 	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
 	require.NoError(t, err)
 
-	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	dbPath := t.TempDir()
+	db, err := database.NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	require.NoError(t, db.CommitBlock(actions.DbRecord{
+		Key: 68,
+		Actions: []*actions.Action{{
+			BlockHeight: 68,
+			FeePayer:    []byte(testContractAddress),
+			ActionType:  actions.ActionType_DEPOSIT,
+			Amount:      42,
+		}},
+	}))
+	// Reopen the DB to verify restart resumes after the atomically committed block.
+	require.NoError(t, db.Close())
+
+	db, err = database.NewDbManager(dbPath, blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, db.Close())
 	}()
 
-	require.NoError(t, db.InsertBlockHeight(68))
+	hasRecord, err := db.Has(68)
+	require.NoError(t, err)
+	require.True(t, hasRecord)
 
 	conn.beforeWait = func(waitCalls int) {
 		if waitCalls != 0 {
@@ -148,6 +165,47 @@ func TestRunReconcilesMissingHeightsFromNotificationAndSkipsDuplicateOrOutOfOrde
 	cursor, err := db.GetBlockHeight()
 	require.NoError(t, err)
 	require.Equal(t, int64(70), cursor)
+}
+
+func TestSyncToAfterCursorlessRestartDoesNotStoreEmptyBlock(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dbPath := t.TempDir()
+
+	db, err := database.NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	require.NoError(t, db.EnsureStartBlockHeight(10))
+	// Reopen after initialization to simulate a restart before the first cursor.
+	require.NoError(t, db.Close())
+
+	db, err = database.NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	conn := &fakeNotificationConn{}
+	querier := &fakeQuerier{
+		conn: conn,
+		blockIDsByHeight: map[int64]int64{
+			10: 100,
+		},
+		rowsByHeight: map[int64][]sqlcdb.ListActionRowsByBlockIDRow{
+			10: {},
+		},
+	}
+	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
+	require.NoError(t, err)
+
+	indexer, err := NewIndexer(conn, client, db, 10, 32, logger)
+	require.NoError(t, err)
+	require.NoError(t, indexer.syncTo(context.Background(), 10))
+
+	hasRecord, err := db.Has(10)
+	require.NoError(t, err)
+	require.False(t, hasRecord)
+	cursor, err := db.GetBlockHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(10), cursor)
 }
 
 func TestIndexAvailableBlocksDoesNotAdvanceCursorOnInvalidBlock(t *testing.T) {

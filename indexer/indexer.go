@@ -291,11 +291,12 @@ func (indexer *Indexer) indexAvailableBlocks(ctx context.Context, height int64) 
 		return err
 	}
 
-	if err := indexer.db.Insert(record); err != nil {
+	// Only action-bearing blocks need an atomic record-and-cursor commit.
+	if err := indexer.db.CommitBlock(record); err != nil {
 		return err
 	}
 
 	indexer.logger.InfoContext(ctx, "indexed block", "height", height, "actions", len(actions))
 
-	return indexer.db.InsertBlockHeight(height)
+	return nil
 }

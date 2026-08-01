@@ -88,6 +88,51 @@ func (manager *DbManager) Insert(record actions.DbRecord) error {
 	return manager.db.Put(encodeBlockHeight(record.Key), marshalled, nil)
 }
 
+// CommitBlock atomically stores an action-bearing block and advances the cursor.
+func (manager *DbManager) CommitBlock(record actions.DbRecord) error {
+	if err := manager.Validate(); err != nil {
+		return err
+	}
+	if err := validateRecord(record); err != nil {
+		return err
+	}
+
+	marshalled, err := proto.Marshal(&record)
+	if err != nil {
+		return err
+	}
+
+	manager.blockHeightMu.Lock()
+	defer manager.blockHeightMu.Unlock()
+
+	cursorKey := []byte(manager.blockHeightDatabaseKey)
+	cursorRecord, err := manager.db.Get(cursorKey, nil)
+	switch {
+	case err == nil:
+		currentHeight, err := decodeBlockHeight(cursorRecord)
+		if err != nil {
+			return err
+		}
+		if record.Key < currentHeight {
+			return fmt.Errorf(
+				"%w: current=%d requested=%d",
+				apperrors.ErrBlockHeightRegression,
+				currentHeight,
+				record.Key,
+			)
+		}
+	case errors.Is(err, leveldb.ErrNotFound):
+	default:
+		return fmt.Errorf("get block height cursor: %w", err)
+	}
+
+	// One batch prevents restart from observing a record without its cursor.
+	batch := new(leveldb.Batch)
+	batch.Put(encodeBlockHeight(record.Key), marshalled)
+	batch.Put(cursorKey, encodeBlockHeight(record.Key))
+	return manager.db.Write(batch, nil)
+}
+
 // Has reports whether a block record exists for height.
 func (manager *DbManager) Has(height int64) (bool, error) {
 
