@@ -54,6 +54,8 @@ func loadGenesisFromHome(homePath string) (*genesisFile, error) {
 	return &genesis, nil
 }
 
+// TODO: Currently we only read from genesis.json. Values are static.
+// Wrapper should be able to update these values since Pulsar consensus may decide to change values as well.
 // LoadBridgeParamsFromHome reads bridge params from the Pulsar genesis file.
 func loadBridgeParamsFromHome(homePath string) (bridgeParams, error) {
 	genesis, err := loadGenesisFromHome(homePath)

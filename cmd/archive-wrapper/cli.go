@@ -225,6 +225,7 @@ func run(args []string, ctx context.Context,
 func registerGRPCServices(grpcServer *grpc.Server, queryService query.QueryServer) *grpcHealth.Server {
 	query.RegisterQueryServer(grpcServer, queryService)
 
+	// TODO: Open custom endpoint for Health to return Syncing response too.
 	healthServer := grpcHealth.NewServer()
 	grpcHealthV1.RegisterHealthServer(grpcServer, healthServer)
 	reflection.Register(grpcServer)
