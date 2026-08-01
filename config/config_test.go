@@ -53,7 +53,6 @@ deployment_metadata:
 func TestLoadRejectsConflictingDeploymentMetadataKey(t *testing.T) {
 	for _, metadataKey := range []string{
 		"archive-wrapper",
-		"archive-wrapper:start",
 		"metadata",
 	} {
 		t.Run(metadataKey, func(t *testing.T) {

@@ -66,10 +66,6 @@ var (
 	ErrInvalidBlockRange = errors.New("invalid block range")
 	// ErrNotificationConnectionLost reports a retryable PostgreSQL LISTEN/NOTIFY connection failure.
 	ErrNotificationConnectionLost = errors.New("notification connection lost")
-	// ErrStartBlockHeightMismatch reports that a requested start height conflicts with persisted metadata.
-	ErrStartBlockHeightMismatch = errors.New("start block height does not match persisted start block height")
-	// ErrInvalidIndexedBounds reports inconsistent persisted cursor or stored record bounds.
-	ErrInvalidIndexedBounds = errors.New("persisted index bounds are invalid")
 )
 
 var (

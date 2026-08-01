@@ -108,54 +108,6 @@ func TestDbManagerInsertBlockHeightRejectsRegression(t *testing.T) {
 	require.True(t, errors.Is(err, apperrors.ErrBlockHeightRegression))
 }
 
-func TestDbManagerEnsureStartBlockHeightPersistsAndRejectsMismatch(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	require.NotNil(t, logger)
-
-	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
-	require.NoError(t, err)
-	require.NotNil(t, manager)
-
-	defer func() {
-		require.NoError(t, manager.Close())
-	}()
-
-	require.NoError(t, manager.EnsureStartBlockHeight(7))
-
-	startHeight, err := manager.GetStartBlockHeight()
-	require.NoError(t, err)
-	require.Equal(t, int64(7), startHeight)
-
-	require.NoError(t, manager.EnsureStartBlockHeight(7))
-
-	err = manager.EnsureStartBlockHeight(8)
-	require.Error(t, err)
-	require.ErrorIs(t, err, apperrors.ErrStartBlockHeightMismatch)
-}
-
-func TestDbManagerEnsureStartBlockHeightRejectsInvalidBounds(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	require.NotNil(t, logger)
-
-	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
-	require.NoError(t, err)
-	require.NotNil(t, manager)
-
-	defer func() {
-		require.NoError(t, manager.Close())
-	}()
-
-	require.NoError(t, manager.InsertBlockHeight(7))
-
-	err = manager.EnsureStartBlockHeight(8)
-	require.Error(t, err)
-	require.ErrorIs(t, err, apperrors.ErrInvalidIndexedBounds)
-
-	hasStartHeight, err := manager.HasStartBlockHeight()
-	require.NoError(t, err)
-	require.False(t, hasStartHeight)
-}
-
 func TestDbManagerEnsureDeploymentMetadataPersistsAndAcceptsMatch(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	dbPath := t.TempDir()
@@ -242,17 +194,28 @@ func TestDbManagerEnsureDeploymentMetadataRejectsIndexedDatabaseWithoutMetadata(
 
 func TestDbManagerEnsureDeploymentMetadataAllowsInitializedDatabaseWithoutCursor(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	dbPath := t.TempDir()
+	manager, err := NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	require.NoError(t, manager.EnsureDeploymentMetadata(
+		"archive-wrapper:deployment",
+		testDeploymentMetadata(),
+	))
+	require.NoError(t, manager.Close())
+
+	manager, err = NewDbManager(dbPath, blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close())
 	}()
 
-	require.NoError(t, manager.EnsureStartBlockHeight(10))
 	require.NoError(t, manager.EnsureDeploymentMetadata(
 		"archive-wrapper:deployment",
 		testDeploymentMetadata(),
 	))
+	hasCursor, err := manager.HasBlockHeight()
+	require.NoError(t, err)
+	require.False(t, hasCursor)
 }
 
 func testDeploymentMetadata() DeploymentMetadata {

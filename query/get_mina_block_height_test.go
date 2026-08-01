@@ -27,7 +27,7 @@ func TestQuery_GetMinaBlockHeight(t *testing.T) {
 	err = manager.InsertBlockHeight(7)
 	require.NoError(t, err)
 
-	q, err := NewQuery(manager, slog.New(slog.NewTextHandler(io.Discard, nil)), testMaxBlockRange)
+	q, err := NewQuery(manager, slog.New(slog.NewTextHandler(io.Discard, nil)), 1, testMaxBlockRange)
 	require.NoError(t, err)
 
 	got, err := q.GetMinaBlockHeight(context.Background(), &QueryGetMinaBlockHeightRequest{})
@@ -48,7 +48,7 @@ func TestQuery_GetMinaBlockHeight_NoProcessedBlocksReturnsFailedPrecondition(t *
 		require.NoError(t, manager.Close())
 	}()
 
-	q, err := NewQuery(manager, logger, testMaxBlockRange)
+	q, err := NewQuery(manager, logger, 1, testMaxBlockRange)
 	require.NoError(t, err)
 
 	got, err := q.GetMinaBlockHeight(context.Background(), &QueryGetMinaBlockHeightRequest{})

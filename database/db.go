@@ -20,7 +20,6 @@ type DbManager struct {
 	logger                 *slog.Logger
 	db                     *leveldb.DB
 	blockHeightDatabaseKey string
-	startBlockHeightKey    string
 	blockHeightMu          sync.Mutex
 }
 
@@ -43,7 +42,6 @@ func NewDbManager(path, blockHeightDatabaseKey string, logger *slog.Logger) (*Db
 		logger:                 logger,
 		db:                     db,
 		blockHeightDatabaseKey: blockHeightDatabaseKey,
-		startBlockHeightKey:    blockHeightDatabaseKey + ":start",
 	}, nil
 }
 
@@ -238,15 +236,6 @@ func (manager *DbManager) HasBlockHeight() (bool, error) {
 	return manager.db.Has([]byte(manager.blockHeightDatabaseKey), nil)
 }
 
-// HasStartBlockHeight reports whether the earliest indexed block height exists.
-func (manager *DbManager) HasStartBlockHeight() (bool, error) {
-	if err := manager.Validate(); err != nil {
-		return false, err
-	}
-
-	return manager.db.Has([]byte(manager.startBlockHeightKey), nil)
-}
-
 // GetBlockHeight returns the latest processed block height cursor.
 // It returns leveldb.ErrNotFound until the first successful block is processed.
 func (manager *DbManager) GetBlockHeight() (int64, error) {
@@ -272,124 +261,18 @@ func (manager *DbManager) GetBlockHeight() (int64, error) {
 	return height, nil
 }
 
-// GetStartBlockHeight returns the earliest indexed block height bound.
-// It returns leveldb.ErrNotFound until the start height has been initialized.
-func (manager *DbManager) GetStartBlockHeight() (int64, error) {
-	if err := manager.Validate(); err != nil {
-		return 0, err
-	}
-
-	record, err := manager.db.Get([]byte(manager.startBlockHeightKey), nil)
-	if err != nil {
-		return 0, err
-	}
-
-	height, err := decodeBlockHeight(record)
-	if err != nil {
-		return 0, err
-	}
-
-	if manager.logger != nil {
-		manager.logger.Debug("loaded earliest indexed block height", "height", height)
-	}
-
-	return height, nil
-}
-
-// EnsureStartBlockHeight persists the earliest indexed block height once and
-// validates it against any existing cursor or stored records.
-func (manager *DbManager) EnsureStartBlockHeight(height int64) error {
-	if err := manager.Validate(); err != nil {
-		return err
-	}
-	if height <= 0 {
-		return apperrors.ErrBlockHeightMustBeBiggerThanZero
-	}
-
-	manager.blockHeightMu.Lock()
-	defer manager.blockHeightMu.Unlock()
-
-	key := []byte(manager.startBlockHeightKey)
-	shouldPersist := false
-	record, err := manager.db.Get(key, nil)
-	switch {
-	case err == nil:
-		persistedHeight, err := decodeBlockHeight(record)
-		if err != nil {
-			return err
-		}
-		if persistedHeight != height {
-			return fmt.Errorf(
-				"%w: persisted=%d requested=%d",
-				apperrors.ErrStartBlockHeightMismatch,
-				persistedHeight,
-				height,
-			)
-		}
-	case errors.Is(err, leveldb.ErrNotFound):
-		shouldPersist = true
-	default:
-		return fmt.Errorf("get start block height: %w", err)
-	}
-
-	cursorRecord, err := manager.db.Get([]byte(manager.blockHeightDatabaseKey), nil)
-	switch {
-	case err == nil:
-		cursorHeight, err := decodeBlockHeight(cursorRecord)
-		if err != nil {
-			return err
-		}
-		if cursorHeight < height {
-			return fmt.Errorf(
-				"%w: start=%d cursor=%d",
-				apperrors.ErrInvalidIndexedBounds,
-				height,
-				cursorHeight,
-			)
-		}
-	case errors.Is(err, leveldb.ErrNotFound):
-	default:
-		return fmt.Errorf("get block height cursor: %w", err)
-	}
-
-	earliestRecordHeight, hasRecord, err := manager.getEarliestStoredRecordHeight()
-	if err != nil {
-		return err
-	}
-	if hasRecord && earliestRecordHeight < height {
-		return fmt.Errorf(
-			"%w: start=%d earliest_record=%d",
-			apperrors.ErrInvalidIndexedBounds,
-			height,
-			earliestRecordHeight,
-		)
-	}
-
-	if shouldPersist {
-		if manager.logger != nil {
-			manager.logger.Debug("persisting earliest indexed block height", "height", height)
-		}
-		if err := manager.db.Put(key, encodeBlockHeight(height), nil); err != nil {
-			return fmt.Errorf("put start block height: %w", err)
-		}
-	}
-
-	return nil
-}
-
 func (manager *DbManager) getEarliestStoredRecordHeight() (int64, bool, error) {
 	iter := manager.db.NewIterator(nil, nil)
 	defer iter.Release()
 
 	cursorKey := []byte(manager.blockHeightDatabaseKey)
-	startKey := []byte(manager.startBlockHeightKey)
 
 	for iter.Next() {
 		key := iter.Key()
 		if len(key) != 8 {
 			continue
 		}
-		if string(key) == string(cursorKey) || string(key) == string(startKey) {
+		if string(key) == string(cursorKey) {
 			continue
 		}
 

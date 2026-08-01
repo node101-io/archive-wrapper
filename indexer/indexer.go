@@ -73,10 +73,6 @@ func NewIndexer(
 		return nil, apperrors.ErrInvalidBlockRange
 	}
 
-	if err := db.EnsureStartBlockHeight(startBlockHeight); err != nil {
-		return nil, err
-	}
-
 	logger.Info(
 		"indexer initialized",
 		"start_block_height",
