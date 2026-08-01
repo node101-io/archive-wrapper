@@ -84,16 +84,15 @@ that depth, and then follows the PostgreSQL `blocks_inserted` notifications.
 Query and notification connection failures are retried while the process is
 running.
 
-If the LevelDB already has a persisted cursor and you want to resume
-explicitly from it, use:
+To resume an existing LevelDB, use:
 
 ```sh
 make proceed
 ```
 
-`proceed` requires an existing latest processed block height in LevelDB. It
-keeps the genesis start height for bounds validation, then resumes indexing
-from the persisted cursor already stored in the local database.
+`proceed` accepts an existing LevelDB even before its first cursor is written.
+It resumes from the persisted cursor when present, or continues the initial
+sync from the genesis start height when the cursor is still missing.
 
 Stop the running process through its Unix control socket:
 

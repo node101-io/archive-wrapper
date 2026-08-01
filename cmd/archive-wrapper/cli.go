@@ -130,16 +130,20 @@ func run(args []string, ctx context.Context,
 		if err != nil {
 			return err
 		}
+		if _, err := os.Stat(cfg.DBPath); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("db does not exist: %s; run start first", cfg.DBPath)
+			}
+			return fmt.Errorf("stat db path: %w", err)
+		}
 
 		latestProcessedBlockHeight, err := loadLatestProcessedBlockHeight(
 			cfg.DBPath,
 			cfg.BlockHeightDatabaseKey,
 			logger,
 		)
-		if errors.Is(err, leveldb.ErrNotFound) {
-			return fmt.Errorf("load latest processed block height: no persisted block height found in %s; run start first", cfg.DBPath)
-		}
-		if err != nil {
+		// A missing cursor is valid when initialization finished before the first block.
+		if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
 			return fmt.Errorf("load latest processed block height: %w", err)
 		}
 
@@ -149,16 +153,18 @@ func run(args []string, ctx context.Context,
 			*configPath,
 			"home",
 			*homePath,
-			"latest_processed_block_height",
-			latestProcessedBlockHeight,
 		)
-		cliLogger.Info(
-			"resuming from persisted block height",
-			"block_height",
-			latestProcessedBlockHeight,
-			"db_path",
-			cfg.DBPath,
-		)
+		if errors.Is(err, leveldb.ErrNotFound) {
+			cliLogger.Info("resuming before first cursor", "db_path", cfg.DBPath)
+		} else {
+			cliLogger.Info(
+				"resuming from persisted block height",
+				"block_height",
+				latestProcessedBlockHeight,
+				"db_path",
+				cfg.DBPath,
+			)
+		}
 
 		bridgeParams, err := loadBridgeParamsFromHome(*homePath)
 		if err != nil {
