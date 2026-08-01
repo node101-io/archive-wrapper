@@ -61,6 +61,12 @@ func Load(configFile string) (Config, error) {
 	if cfg.DeploymentMetadataKey == "" {
 		return Config{}, apperrors.ErrDeploymentMetadataKeyRequired
 	}
+	// Metadata must not overlap cursor, start-height, or 8-byte block-record keys.
+	if cfg.DeploymentMetadataKey == cfg.BlockHeightDatabaseKey ||
+		cfg.DeploymentMetadataKey == cfg.BlockHeightDatabaseKey+":start" ||
+		len(cfg.DeploymentMetadataKey) == 8 {
+		return Config{}, apperrors.ErrDeploymentMetadataKeyConflict
+	}
 	if cfg.DeploymentMetadata.SchemaVersion == 0 {
 		return Config{}, apperrors.ErrDeploymentSchemaVersionRequired
 	}

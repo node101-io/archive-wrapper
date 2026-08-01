@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,4 +48,30 @@ deployment_metadata:
 
 	_, err := Load(configPath)
 	require.ErrorIs(t, err, apperrors.ErrMinaNetworkIDRequired)
+}
+
+func TestLoadRejectsConflictingDeploymentMetadataKey(t *testing.T) {
+	for _, metadataKey := range []string{
+		"archive-wrapper",
+		"archive-wrapper:start",
+		"metadata",
+	} {
+		t.Run(metadataKey, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+			contents := fmt.Sprintf(`
+block_height_database_key: "archive-wrapper"
+db_path: "./data/archive-wrapper"
+grpc_listen_address: "127.0.0.1:9090"
+control_socket_path: "/tmp/archive-wrapper.sock"
+deployment_metadata_key: %q
+deployment_metadata:
+  schema_version: 1
+  mina_network_id: "testnet"
+`, metadataKey)
+			require.NoError(t, os.WriteFile(configPath, []byte(contents), 0o644))
+
+			_, err := Load(configPath)
+			require.ErrorIs(t, err, apperrors.ErrDeploymentMetadataKeyConflict)
+		})
+	}
 }

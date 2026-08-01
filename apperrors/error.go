@@ -87,6 +87,8 @@ var (
 	ErrControlSocketPathRequired = errors.New("control socket path is required")
 	// ErrDeploymentMetadataKeyRequired reports that the deployment metadata key is missing from config.
 	ErrDeploymentMetadataKeyRequired = errors.New("deployment metadata database key is required")
+	// ErrDeploymentMetadataKeyConflict reports overlap with another LevelDB key namespace.
+	ErrDeploymentMetadataKeyConflict = errors.New("deployment metadata database key conflicts with reserved keys")
 	// ErrDeploymentSchemaVersionRequired reports that the deployment schema version is missing from config.
 	ErrDeploymentSchemaVersionRequired = errors.New("deployment schema version is required")
 	// ErrMinaNetworkIDRequired reports that mina_network_id is missing from config.
