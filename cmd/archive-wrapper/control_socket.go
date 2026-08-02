@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/node101-io/archive-wrapper/config"
 )
 
@@ -60,30 +61,45 @@ func runStop(sockPath string, logger *slog.Logger) (retErr error) {
 	return
 }
 
-// resolveStopSocketPath applies the explicit flag, config, then environment precedence.
-func resolveStopSocketPath(socketPath, configPath, envSocketPath string) (string, error) {
-	socketPath = strings.TrimSpace(socketPath)
-	if socketPath != "" {
-		return socketPath, nil
+// resolveStopSocketPath applies CLI > environment > config precedence.
+func resolveStopSocketPath(socketPath string, socketPathSet bool, configPath string, configPathSet bool) (string, error) {
+	if socketPathSet {
+		if strings.TrimSpace(socketPath) == "" {
+			return "", apperrors.ErrControlSocketPathRequired
+		}
+		return strings.TrimSpace(socketPath), nil
 	}
 
-	configPath = strings.TrimSpace(configPath)
-	if configPath != "" {
-		cfg, err := config.Load(configPath)
+	if envSocketPath, ok := os.LookupEnv("ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH"); ok {
+		if strings.TrimSpace(envSocketPath) == "" {
+			return "", fmt.Errorf("%w: ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH is empty", apperrors.ErrControlSocketPathRequired)
+		}
+		return strings.TrimSpace(envSocketPath), nil
+	}
+
+	if configPathSet || strings.TrimSpace(configPath) != "" {
+		if strings.TrimSpace(configPath) == "" {
+			return "", apperrors.ErrConfigPathRequired
+		}
+		cfg, err := config.Load(strings.TrimSpace(configPath))
 		if err != nil {
 			return "", fmt.Errorf("load stop config: %w", err)
 		}
 		return cfg.ControlSocketPath, nil
 	}
 
-	envSocketPath = strings.TrimSpace(envSocketPath)
-	if envSocketPath != "" {
-		return envSocketPath, nil
+	if envConfigPath, ok := os.LookupEnv("ARCHIVE_WRAPPER_CONFIG"); ok {
+		if strings.TrimSpace(envConfigPath) == "" {
+			return "", fmt.Errorf("%w: ARCHIVE_WRAPPER_CONFIG is empty", apperrors.ErrConfigPathRequired)
+		}
+		cfg, err := config.Load(strings.TrimSpace(envConfigPath))
+		if err != nil {
+			return "", fmt.Errorf("load stop config: %w", err)
+		}
+		return cfg.ControlSocketPath, nil
 	}
 
-	return "", fmt.Errorf(
-		"--config or --socket-path is required unless ARCHIVE_WRAPPER_CONFIG or ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH is set",
-	)
+	return "", apperrors.ErrControlSocketPathRequired
 }
 
 // listenControlSocket accepts local commands until the listener closes or STOP arrives.

@@ -55,6 +55,7 @@ func superviseIndexer(
 
 	for {
 		readiness.Connecting()
+		attemptStartedAt := time.Now()
 		// pgxpool.New is lazy, so Ping verifies connectivity before a session starts.
 		probeStartedAt := time.Now()
 		probeCtx, cancel := context.WithTimeout(ctx, policy.ProbeTimeout)
@@ -65,7 +66,6 @@ func superviseIndexer(
 				return ctx.Err()
 			}
 			err = fmt.Errorf("%w: ping postgres query pool: %w", apperrors.ErrQueryConnectionLost, err)
-			runtimeLogger.Warn("postgres query pool ping failed", "duration", time.Since(probeStartedAt), "err", err)
 		} else {
 			runtimeLogger.Info("postgres query pool ping succeeded", "duration", time.Since(probeStartedAt))
 			err = session(ctx)
@@ -82,12 +82,9 @@ func superviseIndexer(
 			return err
 		}
 
-		errorSummary := "postgres query connection unavailable"
-		if errors.Is(err, apperrors.ErrNotificationConnectionLost) {
-			errorSummary = "postgres notification connection unavailable"
-		}
-		readiness.Reconnecting(errorSummary)
-		runtimeLogger.Warn("postgres connection lost, reconnecting", "retry_delay", policy.RetryDelay, "err", err)
+		summary, _ := postgresErrorSummary(err)
+		readiness.Reconnecting(summary)
+		runtimeLogger.Warn("postgres connection lost, reconnecting", "duration", time.Since(attemptStartedAt), "retry_delay", policy.RetryDelay, "error", summary)
 
 		select {
 		case <-ctx.Done():
@@ -118,7 +115,6 @@ func runIndexerSession(
 	notificationConn, err := connect(connectCtx, postgresURI)
 	cancel()
 	if err != nil {
-		runtimeLogger.Warn("postgres notification connection failed", "duration", time.Since(connectStartedAt), "err", err)
 		return fmt.Errorf("%w: connect notification connection: %w", apperrors.ErrNotificationConnectionLost, err)
 	}
 	runtimeLogger.Info("postgres notification connection ready", "duration", time.Since(connectStartedAt))
@@ -152,6 +148,6 @@ func closeNotificationConn(ctx context.Context, conn postgresNotificationConn, l
 	defer cancel()
 
 	if err := conn.Close(closeCtx); err != nil {
-		logger.Warn("close notification connection failed", "err", err)
+		logger.Warn("postgres notification connection close failed")
 	}
 }

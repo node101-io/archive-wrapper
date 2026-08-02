@@ -59,7 +59,7 @@ func mainExitCode() int {
 	logger.Info("archive-wrapper process started")
 
 	if err := run(os.Args[1:], ctx, cancel, logger); err != nil && !errors.Is(err, context.Canceled) {
-		logger.Error("archive-wrapper process failed", "err", err)
+		logApplicationError(logger, "archive-wrapper process failed", err)
 		return 1
 	}
 
