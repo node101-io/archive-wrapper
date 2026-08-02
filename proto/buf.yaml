@@ -4,6 +4,17 @@ deps:
 lint:
   use:
     - STANDARD
+  ignore_only:
+    PACKAGE_VERSION_SUFFIX:
+      - actions/action.proto
+      - diagnostics/diagnostics.proto
+      - query/query.proto
+    ENUM_VALUE_PREFIX:
+      - actions/action.proto
+    ENUM_ZERO_VALUE_SUFFIX:
+      - actions/action.proto
+    SERVICE_SUFFIX:
+      - query/query.proto
 breaking:
   use:
     - FILE

@@ -6,10 +6,13 @@ export GOCACHE := $(CURDIR)/.cache/go-build
 export GOLANGCI_LINT_CACHE := $(CURDIR)/.cache/golangci-lint
 CONFIG ?= config.yaml
 
-.PHONY: ensure-cache fmt test lint build start proceed stop
+.PHONY: ensure-cache proto fmt test lint build start proceed stop
 
 ensure-cache:
 	mkdir -p "$(GOCACHE)" "$(GOLANGCI_LINT_CACHE)"
+
+proto:
+	cd proto && buf generate --template buf.gen.gogo.yaml
 
 fmt:
 	gofmt -w $(shell rg --files -g '*.go')

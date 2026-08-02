@@ -15,13 +15,19 @@ import (
 
 // Query serves gRPC reads against the locally indexed LevelDB data.
 type Query struct {
-	logger        *slog.Logger
-	db            *database.DbManager
-	maxBlockRange int64
+	logger           *slog.Logger
+	db               *database.DbManager
+	startBlockHeight int64
+	maxBlockRange    int64
 }
 
 // NewQuery constructs a Query service with the configured range guard.
-func NewQuery(db *database.DbManager, logger *slog.Logger, maxBlockRange int64) (*Query, error) {
+func NewQuery(
+	db *database.DbManager,
+	logger *slog.Logger,
+	startBlockHeight int64,
+	maxBlockRange int64,
+) (*Query, error) {
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
 	}
@@ -33,17 +39,27 @@ func NewQuery(db *database.DbManager, logger *slog.Logger, maxBlockRange int64) 
 	if err := db.Validate(); err != nil {
 		return nil, err
 	}
+	if startBlockHeight <= 0 {
+		return nil, apperrors.ErrStartBlockHeightRequired
+	}
 	if maxBlockRange <= 0 {
 		return nil, apperrors.ErrMaxBlockRangeRequired
 	}
 
 	logger = logger.With("component", "query")
-	logger.Info("query service initialized", "max_block_range", maxBlockRange)
+	logger.Info(
+		"query service initialized",
+		"start_block_height",
+		startBlockHeight,
+		"max_block_range",
+		maxBlockRange,
+	)
 
 	return &Query{
-		logger:        logger,
-		db:            db,
-		maxBlockRange: maxBlockRange,
+		logger:           logger,
+		db:               db,
+		startBlockHeight: startBlockHeight,
+		maxBlockRange:    maxBlockRange,
 	}, nil
 }
 
@@ -110,36 +126,8 @@ func (q *Query) GetActionsInRange(
 		)
 	}
 
-	earliestHeight, err := q.db.GetStartBlockHeight()
-	if errors.Is(err, leveldb.ErrNotFound) {
-		_, latestErr := q.db.GetBlockHeight()
-		if errors.Is(latestErr, leveldb.ErrNotFound) {
-			return nil, status.Error(
-				codes.FailedPrecondition,
-				"indexer has not processed any blocks yet",
-			)
-		}
-		if latestErr != nil {
-			q.logger.ErrorContext(ctx, "failed to read latest processed block height while checking indexed bounds", "err", latestErr)
-			return nil, status.Error(
-				codes.Internal,
-				"failed to read latest block height",
-			)
-		}
-		return nil, status.Error(
-			codes.FailedPrecondition,
-			"indexer start block height is not initialized",
-		)
-	}
-	if err != nil {
-		q.logger.ErrorContext(ctx, "failed to read earliest indexed block height", "err", err)
-		return nil, status.Error(
-			codes.Internal,
-			"failed to read earliest indexed block height",
-		)
-	}
-
-	if in.StartBlockHeight < earliestHeight {
+	// Start height comes from deployment metadata validated before startup.
+	if in.StartBlockHeight < q.startBlockHeight {
 		q.logger.WarnContext(
 			ctx,
 			"query requested range below earliest indexed height",
@@ -148,13 +136,13 @@ func (q *Query) GetActionsInRange(
 			"end_block_height",
 			in.EndBlockHeight,
 			"earliest_indexed_height",
-			earliestHeight,
+			q.startBlockHeight,
 		)
 		return nil, status.Errorf(
 			codes.FailedPrecondition,
 			"start block height %d is lower than earliest indexed block %d",
 			in.StartBlockHeight,
-			earliestHeight,
+			q.startBlockHeight,
 		)
 	}
 

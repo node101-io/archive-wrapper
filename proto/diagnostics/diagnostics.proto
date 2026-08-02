@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package diagnostics;
+
+import "gogoproto/gogo.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/node101-io/archive-wrapper/diagnostics;diagnostics";
+
+service DiagnosticsService {
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+}
+
+enum OperationalState {
+  OPERATIONAL_STATE_UNSPECIFIED = 0;
+  OPERATIONAL_STATE_STARTING = 1;
+  OPERATIONAL_STATE_CONNECTING = 2;
+  OPERATIONAL_STATE_SYNCING = 3;
+  OPERATIONAL_STATE_WAITING_FOR_FINALITY = 4;
+  OPERATIONAL_STATE_READY = 5;
+  OPERATIONAL_STATE_RECONNECTING = 6;
+  OPERATIONAL_STATE_FAILED = 7;
+  OPERATIONAL_STATE_STOPPING = 8;
+}
+
+message GetStatusRequest {
+  option (gogoproto.goproto_getters) = false;
+}
+
+message GetStatusResponse {
+  option (gogoproto.goproto_getters) = false;
+
+  OperationalState state = 1;
+  bool ready = 2;
+  IndexerStatus indexer = 3 [(gogoproto.nullable) = false];
+  google.protobuf.Timestamp state_since = 4 [(gogoproto.stdtime) = true];
+  google.protobuf.Timestamp last_successful_sync_at = 5 [(gogoproto.stdtime) = true];
+  google.protobuf.Timestamp last_error_at = 6 [(gogoproto.stdtime) = true];
+  string last_error = 7;
+}
+
+message IndexerStatus {
+  option (gogoproto.goproto_getters) = false;
+
+  bool initialized = 1;
+  int64 indexed_height = 2;
+  int64 archive_height = 3;
+  int64 target_height = 4;
+  int64 confirmed_lag = 5;
+}

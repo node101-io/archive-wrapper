@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/node101-io/archive-wrapper/config"
 	"github.com/node101-io/archive-wrapper/database"
+	"github.com/node101-io/archive-wrapper/diagnostics"
 	"github.com/node101-io/archive-wrapper/fetchmina"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
 	"github.com/node101-io/archive-wrapper/indexer"
@@ -33,7 +35,9 @@ import (
 
 const network = "unix"
 const notificationReconnectDelay = 2 * time.Second
+const postgresProbeTimeout = 5 * time.Second
 const queryGRPCServiceName = "query.Query"
+const diagnosticsGRPCServiceName = "diagnostics.DiagnosticsService"
 
 const (
 	controlSocketReadTimeout  = time.Second
@@ -130,16 +134,20 @@ func run(args []string, ctx context.Context,
 		if err != nil {
 			return err
 		}
+		if _, err := os.Stat(cfg.DBPath); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("db does not exist: %s; run start first", cfg.DBPath)
+			}
+			return fmt.Errorf("stat db path: %w", err)
+		}
 
 		latestProcessedBlockHeight, err := loadLatestProcessedBlockHeight(
 			cfg.DBPath,
 			cfg.BlockHeightDatabaseKey,
 			logger,
 		)
-		if errors.Is(err, leveldb.ErrNotFound) {
-			return fmt.Errorf("load latest processed block height: no persisted block height found in %s; run start first", cfg.DBPath)
-		}
-		if err != nil {
+		// A missing cursor is valid when initialization finished before the first block.
+		if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
 			return fmt.Errorf("load latest processed block height: %w", err)
 		}
 
@@ -149,16 +157,18 @@ func run(args []string, ctx context.Context,
 			*configPath,
 			"home",
 			*homePath,
-			"latest_processed_block_height",
-			latestProcessedBlockHeight,
 		)
-		cliLogger.Info(
-			"resuming from persisted block height",
-			"block_height",
-			latestProcessedBlockHeight,
-			"db_path",
-			cfg.DBPath,
-		)
+		if errors.Is(err, leveldb.ErrNotFound) {
+			cliLogger.Info("resuming before first cursor", "db_path", cfg.DBPath)
+		} else {
+			cliLogger.Info(
+				"resuming from persisted block height",
+				"block_height",
+				latestProcessedBlockHeight,
+				"db_path",
+				cfg.DBPath,
+			)
+		}
 
 		bridgeParams, err := loadBridgeParamsFromHome(*homePath)
 		if err != nil {
@@ -216,23 +226,34 @@ func run(args []string, ctx context.Context,
 	}
 }
 
-func registerGRPCServices(grpcServer *grpc.Server, queryService query.QueryServer) *grpcHealth.Server {
+func registerGRPCServices(
+	grpcServer *grpc.Server,
+	queryService query.QueryServer,
+	diagnosticsService diagnostics.DiagnosticsServiceServer,
+) *grpcHealth.Server {
 	query.RegisterQueryServer(grpcServer, queryService)
+	diagnostics.RegisterDiagnosticsServiceServer(grpcServer, diagnosticsService)
 
 	healthServer := grpcHealth.NewServer()
 	grpcHealthV1.RegisterHealthServer(grpcServer, healthServer)
 	reflection.Register(grpcServer)
-	healthServer.SetServingStatus(
-		queryGRPCServiceName,
-		grpcHealthV1.HealthCheckResponse_SERVING,
-	)
+	healthServer.SetServingStatus("", grpcHealthV1.HealthCheckResponse_NOT_SERVING)
+	healthServer.SetServingStatus(queryGRPCServiceName, grpcHealthV1.HealthCheckResponse_NOT_SERVING)
+	healthServer.SetServingStatus(diagnosticsGRPCServiceName, grpcHealthV1.HealthCheckResponse_SERVING)
 
 	return healthServer
 }
 
 func runStart(ctx context.Context, cfg config.Config,
 	bridgeParams bridgeParams, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
 	runtimeLogger := logger.With("component", "runtime")
+	// Complete deployment metadata with canonical genesis values.
+	cfg.DeploymentMetadata.ContractAddress = bridgeParams.ContractAddress
+	cfg.DeploymentMetadata.StartHeight = bridgeParams.StartBlockHeight
 
 	runtimeLogger.Info(
 		"starting archive wrapper",
@@ -246,11 +267,27 @@ func runStart(ctx context.Context, cfg config.Config,
 		bridgeParams.ConfirmationDepth,
 		"contract_address",
 		bridgeParams.ContractAddress,
+		"mina_network_id",
+		cfg.DeploymentMetadata.MinaNetworkID,
 		"max_block_range",
 		bridgeParams.MaxBlockRange,
 		"db_path",
 		cfg.DBPath,
 	)
+
+	db, err := database.NewDbManager(cfg.DBPath, cfg.BlockHeightDatabaseKey, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close db: %w", err))
+		}
+	}()
+
+	if err := db.EnsureDeploymentMetadata(cfg.DeploymentMetadataKey, cfg.DeploymentMetadata); err != nil {
+		return err
+	}
 
 	ln, err := listenControlSocket(cfg.ControlSocketPath, cancel, logger)
 	if err != nil {
@@ -271,7 +308,7 @@ func runStart(ctx context.Context, cfg config.Config,
 	if err != nil {
 		return err
 	}
-	runtimeLogger.Info("postgres query pool ready")
+	runtimeLogger.Info("postgres query pool configured")
 	defer queryPool.Close()
 
 	client, err := fetchmina.NewMinaClient(
@@ -282,16 +319,6 @@ func runStart(ctx context.Context, cfg config.Config,
 	if err != nil {
 		return err
 	}
-
-	db, err := database.NewDbManager(cfg.DBPath, cfg.BlockHeightDatabaseKey, logger)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("close db: %w", err))
-		}
-	}()
 
 	grpcListener, err := net.Listen("tcp", cfg.GRPCListenAddress)
 	if err != nil {
@@ -304,26 +331,44 @@ func runStart(ctx context.Context, cfg config.Config,
 	}()
 
 	grpcServer := grpc.NewServer()
-	queryService, err := query.NewQuery(db, logger, bridgeParams.MaxBlockRange)
+	queryService, err := query.NewQuery(
+		db,
+		logger,
+		cfg.DeploymentMetadata.StartHeight,
+		bridgeParams.MaxBlockRange,
+	)
 	if err != nil {
 		return err
 	}
-	healthServer := registerGRPCServices(grpcServer, queryService)
+	diagnosticsStore := diagnostics.NewStore()
+	diagnosticsService := diagnostics.NewServer(diagnosticsStore)
+	healthServer := registerGRPCServices(grpcServer, queryService, diagnosticsService)
+	readiness := newReadinessController(healthServer, diagnosticsStore)
 
 	group, runCtx := errgroup.WithContext(ctx)
 
 	group.Go(func() error {
 		runtimeLogger.Info("starting indexer run loop")
 
-		err := runIndexerWithReconnect(
-			runCtx,
-			postgresURI,
-			client,
-			db,
-			bridgeParams.StartBlockHeight,
-			bridgeParams.ConfirmationDepth,
-			logger,
-		)
+		session := func(sessionCtx context.Context) error {
+			return runIndexerSession(
+				sessionCtx,
+				postgresURI,
+				client,
+				db,
+				bridgeParams.StartBlockHeight,
+				bridgeParams.ConfirmationDepth,
+				postgresProbeTimeout,
+				connectPostgresNotification,
+				readiness,
+				logger,
+				runtimeLogger,
+			)
+		}
+		err := superviseIndexer(runCtx, queryPool, session, readiness, reconnectPolicy{
+			ProbeTimeout: postgresProbeTimeout,
+			RetryDelay:   notificationReconnectDelay,
+		}, runtimeLogger)
 		if err != nil {
 			runtimeLogger.Error("indexer run loop stopped with error", "err", err)
 			return err
@@ -349,6 +394,7 @@ func runStart(ctx context.Context, cfg config.Config,
 	group.Go(func() error {
 		<-runCtx.Done()
 		runtimeLogger.Info("shutdown requested, updating gRPC health status")
+		readiness.Stopping()
 		healthServer.Shutdown()
 		// Let in-flight RPCs finish before the server stops.
 		runtimeLogger.Info("shutdown requested, stopping gRPC server")
@@ -371,28 +417,50 @@ func closeControlSocketListener(ln net.Listener) error {
 	return nil
 }
 
-func runIndexerWithReconnect(
+type postgresPinger interface {
+	Ping(context.Context) error
+}
+
+type reconnectPolicy struct {
+	ProbeTimeout time.Duration
+	RetryDelay   time.Duration
+}
+
+type indexerSession func(context.Context) error
+
+type postgresNotificationConn interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	WaitForNotification(context.Context) (*pgconn.Notification, error)
+	Close(context.Context) error
+}
+
+type notificationConnector func(context.Context, string) (postgresNotificationConn, error)
+
+func superviseIndexer(
 	ctx context.Context,
-	postgresURI string,
-	client *fetchmina.MinaClient,
-	db *database.DbManager,
-	startBlockHeight int64,
-	confirmationDepth int64,
-	logger *slog.Logger,
+	pinger postgresPinger,
+	session indexerSession,
+	readiness *readinessController,
+	policy reconnectPolicy,
+	runtimeLogger *slog.Logger,
 ) error {
-	runtimeLogger := logger.With("component", "runtime")
 
 	for {
-		err := runIndexerOnce(
-			ctx,
-			postgresURI,
-			client,
-			db,
-			startBlockHeight,
-			confirmationDepth,
-			logger,
-			runtimeLogger,
-		)
+		readiness.Connecting()
+		probeStartedAt := time.Now()
+		probeCtx, cancel := context.WithTimeout(ctx, policy.ProbeTimeout)
+		err := pinger.Ping(probeCtx)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			err = fmt.Errorf("%w: ping postgres query pool: %w", apperrors.ErrQueryConnectionLost, err)
+			runtimeLogger.Warn("postgres query pool ping failed", "duration", time.Since(probeStartedAt), "err", err)
+		} else {
+			runtimeLogger.Info("postgres query pool ping succeeded", "duration", time.Since(probeStartedAt))
+			err = session(ctx)
+		}
 
 		if err == nil || errors.Is(err, context.Canceled) {
 			return err
@@ -400,36 +468,49 @@ func runIndexerWithReconnect(
 
 		if !errors.Is(err, apperrors.ErrNotificationConnectionLost) &&
 			!errors.Is(err, apperrors.ErrQueryConnectionLost) {
+			readiness.Failed("indexer failed")
 			return err
 		}
 
-		runtimeLogger.Warn("postgres connection lost, reconnecting", "retry_delay", notificationReconnectDelay, "err", err)
+		errorSummary := "postgres query connection unavailable"
+		if errors.Is(err, apperrors.ErrNotificationConnectionLost) {
+			errorSummary = "postgres notification connection unavailable"
+		}
+		readiness.Reconnecting(errorSummary)
+		runtimeLogger.Warn("postgres connection lost, reconnecting", "retry_delay", policy.RetryDelay, "err", err)
 
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(notificationReconnectDelay):
+		case <-time.After(policy.RetryDelay):
 		}
 	}
 }
 
-func runIndexerOnce(
+func runIndexerSession(
 	ctx context.Context,
 	postgresURI string,
 	client *fetchmina.MinaClient,
 	db *database.DbManager,
 	startBlockHeight int64,
 	confirmationDepth int64,
+	connectTimeout time.Duration,
+	connect notificationConnector,
+	observer indexer.SyncObserver,
 	logger *slog.Logger,
 	runtimeLogger *slog.Logger,
 ) error {
 	runtimeLogger.Info("connecting postgres notification connection")
 
-	notificationConn, err := pgx.Connect(ctx, postgresURI)
+	connectStartedAt := time.Now()
+	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
+	notificationConn, err := connect(connectCtx, postgresURI)
+	cancel()
 	if err != nil {
+		runtimeLogger.Warn("postgres notification connection failed", "duration", time.Since(connectStartedAt), "err", err)
 		return fmt.Errorf("%w: connect notification connection: %w", apperrors.ErrNotificationConnectionLost, err)
 	}
-	runtimeLogger.Info("postgres notification connection ready")
+	runtimeLogger.Info("postgres notification connection ready", "duration", time.Since(connectStartedAt))
 	defer closeNotificationConn(ctx, notificationConn, runtimeLogger)
 
 	idx, err := indexer.NewIndexer(
@@ -439,6 +520,7 @@ func runIndexerOnce(
 		startBlockHeight,
 		confirmationDepth,
 		logger,
+		indexer.WithSyncObserver(observer),
 	)
 	if err != nil {
 		return err
@@ -447,7 +529,11 @@ func runIndexerOnce(
 	return idx.Run(ctx)
 }
 
-func closeNotificationConn(ctx context.Context, conn *pgx.Conn, logger *slog.Logger) {
+func connectPostgresNotification(ctx context.Context, postgresURI string) (postgresNotificationConn, error) {
+	return pgx.Connect(ctx, postgresURI)
+}
+
+func closeNotificationConn(ctx context.Context, conn postgresNotificationConn, logger *slog.Logger) {
 	closeCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 

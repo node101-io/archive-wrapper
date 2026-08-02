@@ -108,50 +108,121 @@ func TestDbManagerInsertBlockHeightRejectsRegression(t *testing.T) {
 	require.True(t, errors.Is(err, apperrors.ErrBlockHeightRegression))
 }
 
-func TestDbManagerEnsureStartBlockHeightPersistsAndRejectsMismatch(t *testing.T) {
+func TestDbManagerEnsureDeploymentMetadataPersistsAndAcceptsMatch(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	require.NotNil(t, logger)
+	dbPath := t.TempDir()
+	metadata := testDeploymentMetadata()
 
-	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	manager, err := NewDbManager(dbPath, blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
-	require.NotNil(t, manager)
+	require.NoError(t, manager.EnsureDeploymentMetadata("archive-wrapper:deployment", metadata))
+	require.NoError(t, manager.Close())
 
+	manager, err = NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close())
 	}()
 
-	require.NoError(t, manager.EnsureStartBlockHeight(7))
-
-	startHeight, err := manager.GetStartBlockHeight()
-	require.NoError(t, err)
-	require.Equal(t, int64(7), startHeight)
-
-	require.NoError(t, manager.EnsureStartBlockHeight(7))
-
-	err = manager.EnsureStartBlockHeight(8)
-	require.Error(t, err)
-	require.ErrorIs(t, err, apperrors.ErrStartBlockHeightMismatch)
+	require.NoError(t, manager.EnsureDeploymentMetadata("archive-wrapper:deployment", metadata))
 }
 
-func TestDbManagerEnsureStartBlockHeightRejectsInvalidBounds(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	require.NotNil(t, logger)
+func TestDbManagerEnsureDeploymentMetadataRejectsMismatch(t *testing.T) {
+	want := testDeploymentMetadata()
+	tests := []struct {
+		name   string
+		mutate func(*DeploymentMetadata)
+	}{
+		{
+			name: "schema version",
+			mutate: func(metadata *DeploymentMetadata) {
+				metadata.SchemaVersion++
+			},
+		},
+		{
+			name: "Mina network",
+			mutate: func(metadata *DeploymentMetadata) {
+				metadata.MinaNetworkID = "mainnet"
+			},
+		},
+		{
+			name: "contract address",
+			mutate: func(metadata *DeploymentMetadata) {
+				metadata.ContractAddress = "B62qDifferentContract"
+			},
+		},
+		{
+			name: "start height",
+			mutate: func(metadata *DeploymentMetadata) {
+				metadata.StartHeight++
+			},
+		},
+	}
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+			require.NoError(t, err)
+			defer func() {
+				require.NoError(t, manager.Close())
+			}()
+
+			require.NoError(t, manager.EnsureDeploymentMetadata("archive-wrapper:deployment", want))
+
+			got := want
+			tt.mutate(&got)
+			err = manager.EnsureDeploymentMetadata("archive-wrapper:deployment", got)
+			require.ErrorIs(t, err, apperrors.ErrDeploymentMetadataMismatch)
+		})
+	}
+}
+
+func TestDbManagerEnsureDeploymentMetadataRejectsIndexedDatabaseWithoutMetadata(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
-	require.NotNil(t, manager)
-
 	defer func() {
 		require.NoError(t, manager.Close())
 	}()
 
-	require.NoError(t, manager.InsertBlockHeight(7))
+	require.NoError(t, manager.InsertBlockHeight(10))
 
-	err = manager.EnsureStartBlockHeight(8)
-	require.Error(t, err)
-	require.ErrorIs(t, err, apperrors.ErrInvalidIndexedBounds)
+	err = manager.EnsureDeploymentMetadata("archive-wrapper:deployment", testDeploymentMetadata())
+	require.ErrorIs(t, err, apperrors.ErrDeploymentMetadataMissing)
+}
 
-	hasStartHeight, err := manager.HasStartBlockHeight()
+func TestDbManagerEnsureDeploymentMetadataAllowsInitializedDatabaseWithoutCursor(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dbPath := t.TempDir()
+	manager, err := NewDbManager(dbPath, blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
-	require.False(t, hasStartHeight)
+	require.NoError(t, manager.EnsureDeploymentMetadata(
+		"archive-wrapper:deployment",
+		testDeploymentMetadata(),
+	))
+	require.NoError(t, manager.Close())
+
+	manager, err = NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, manager.Close())
+	}()
+
+	require.NoError(t, manager.EnsureDeploymentMetadata(
+		"archive-wrapper:deployment",
+		testDeploymentMetadata(),
+	))
+	hasCursor, err := manager.HasBlockHeight()
+	require.NoError(t, err)
+	require.False(t, hasCursor)
+}
+
+func testDeploymentMetadata() DeploymentMetadata {
+	return DeploymentMetadata{
+		SchemaVersion:   1,
+		MinaNetworkID:   "testnet",
+		ContractAddress: "B62qContract",
+		StartHeight:     10,
+	}
 }

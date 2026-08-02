@@ -30,6 +30,8 @@ var _ = math.Inf
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 type QueryGetActionsInRangeRequest struct {
+	// Inclusive block-height range. The maximum supported width is configured by
+	// the current bridge max block range.
 	StartBlockHeight int64 `protobuf:"varint,1,opt,name=start_block_height,json=startBlockHeight,proto3" json:"start_block_height,omitempty"`
 	EndBlockHeight   int64 `protobuf:"varint,2,opt,name=end_block_height,json=endBlockHeight,proto3" json:"end_block_height,omitempty"`
 }
@@ -224,6 +226,8 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type QueryClient interface {
+	// GetActionsInRange returns actions for an inclusive indexed block range.
+	// Requests wider than the configured max block range are rejected.
 	GetActionsInRange(ctx context.Context, in *QueryGetActionsInRangeRequest, opts ...grpc.CallOption) (*QueryGetActionsInRangeResponse, error)
 	GetMinaBlockHeight(ctx context.Context, in *QueryGetMinaBlockHeightRequest, opts ...grpc.CallOption) (*QueryGetMinaBlockHeightResponse, error)
 }
@@ -256,6 +260,8 @@ func (c *queryClient) GetMinaBlockHeight(ctx context.Context, in *QueryGetMinaBl
 
 // QueryServer is the server API for Query service.
 type QueryServer interface {
+	// GetActionsInRange returns actions for an inclusive indexed block range.
+	// Requests wider than the configured max block range are rejected.
 	GetActionsInRange(context.Context, *QueryGetActionsInRangeRequest) (*QueryGetActionsInRangeResponse, error)
 	GetMinaBlockHeight(context.Context, *QueryGetMinaBlockHeightRequest) (*QueryGetMinaBlockHeightResponse, error)
 }

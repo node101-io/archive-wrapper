@@ -2,7 +2,6 @@ package indexer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -27,11 +26,7 @@ type Indexer struct {
 	db                *database.DbManager
 	confirmationDepth int64
 	startBlockHeight  int64
-}
-
-// BlockNotification is the NOTIFY payload emitted for new Mina tip heights.
-type BlockNotification struct {
-	Height int64 `json:"height"`
+	observer          SyncObserver
 }
 
 const (
@@ -47,6 +42,7 @@ func NewIndexer(
 	startBlockHeight int64,
 	confirmationDepth int64,
 	logger *slog.Logger,
+	options ...Option,
 ) (*Indexer, error) {
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
@@ -73,10 +69,6 @@ func NewIndexer(
 		return nil, apperrors.ErrInvalidBlockRange
 	}
 
-	if err := db.EnsureStartBlockHeight(startBlockHeight); err != nil {
-		return nil, err
-	}
-
 	logger.Info(
 		"indexer initialized",
 		"start_block_height",
@@ -85,14 +77,22 @@ func NewIndexer(
 		confirmationDepth,
 	)
 
-	return &Indexer{
+	result := &Indexer{
 		logger:            logger,
 		client:            client,
 		conn:              conn,
 		db:                db,
 		confirmationDepth: confirmationDepth,
 		startBlockHeight:  startBlockHeight,
-	}, nil
+		observer:          noopSyncObserver{},
+	}
+	for _, option := range options {
+		if option != nil {
+			option(result)
+		}
+	}
+
+	return result, nil
 }
 
 // Sync catches the local cursor up to the current confirmed Mina tip.
@@ -103,6 +103,7 @@ func (indexer *Indexer) Sync(ctx context.Context) error {
 	if indexer.logger == nil {
 		return apperrors.ErrNilLogger
 	}
+	indexer.observer.OnSyncStarted()
 
 	minaBlockHeight, err := indexer.client.GetMinaBlockHeight(ctx)
 	if err != nil {
@@ -123,12 +124,14 @@ func (indexer *Indexer) Sync(ctx context.Context) error {
 
 	return indexer.syncTo(
 		ctx,
+		minaBlockHeight,
 		target,
 	)
 }
 
 func (indexer *Indexer) syncTo(
 	ctx context.Context,
+	archiveHeight int64,
 	target int64,
 ) error {
 	// Start one block behind so the first loop begins at startBlockHeight.
@@ -146,8 +149,19 @@ func (indexer *Indexer) syncTo(
 		}
 	}
 
+	progress := SyncProgress{
+		ArchiveHeight: archiveHeight,
+		TargetHeight:  target,
+		Initialized:   exists,
+	}
+	if exists {
+		progress.IndexedHeight = cursor
+	}
+	indexer.observer.OnSyncProgress(progress)
+
 	if target <= cursor {
 		indexer.logger.InfoContext(ctx, "sync already up to date", "cursor", cursor, "target", target)
+		indexer.observer.OnSyncCompleted(progress)
 		return nil
 	}
 
@@ -165,9 +179,14 @@ func (indexer *Indexer) syncTo(
 		}); err != nil {
 			return fmt.Errorf("index block %d: %w", height, err)
 		}
+
+		progress.Initialized = true
+		progress.IndexedHeight = height
+		indexer.observer.OnSyncProgress(progress)
 	}
 
 	indexer.logger.InfoContext(ctx, "sync completed", "cursor", target)
+	indexer.observer.OnSyncCompleted(progress)
 
 	return nil
 }
@@ -196,7 +215,7 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 
 	// 3. Yeni notification'ları takip et.
 	for {
-		notification, err := indexer.conn.WaitForNotification(ctx)
+		_, err := indexer.conn.WaitForNotification(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				indexer.logger.InfoContext(ctx, "indexer shutting down")
@@ -205,28 +224,11 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 			return fmt.Errorf("%w: wait for notification: %w", apperrors.ErrNotificationConnectionLost, err)
 		}
 
-		var msg BlockNotification
-		if err := json.Unmarshal(
-			[]byte(notification.Payload),
-			&msg,
-		); err != nil {
-			return err
-		}
-
-		target := msg.Height - indexer.confirmationDepth
-		indexer.logger.InfoContext(
-			ctx,
-			"received block notification",
-			"height",
-			msg.Height,
-			"target",
-			target,
-		)
-
-		// Eski notification ise no-op.
-		// Arada eksik block varsa tamamını işler.
-		if err := indexer.syncTo(ctx, target); err != nil {
-			return err
+		// Notifications only signal that archive state may have changed. Query the
+		// authoritative tip so payload ordering and contents cannot drive indexing.
+		indexer.logger.InfoContext(ctx, "archive change notification received")
+		if err := indexer.Sync(ctx); err != nil {
+			return fmt.Errorf("sync after archive notification: %w", err)
 		}
 	}
 }
@@ -291,11 +293,12 @@ func (indexer *Indexer) indexAvailableBlocks(ctx context.Context, height int64) 
 		return err
 	}
 
-	if err := indexer.db.Insert(record); err != nil {
+	// Only action-bearing blocks need an atomic record-and-cursor commit.
+	if err := indexer.db.CommitBlock(record); err != nil {
 		return err
 	}
 
 	indexer.logger.InfoContext(ctx, "indexed block", "height", height, "actions", len(actions))
 
-	return indexer.db.InsertBlockHeight(height)
+	return nil
 }

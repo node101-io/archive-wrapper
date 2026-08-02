@@ -23,6 +23,10 @@ var (
 	ErrBlockHeightMustBeBiggerThanZero = errors.New("block height must be bigger than zero")
 	// ErrInvalidKey reports that a stored block record key does not match its action heights.
 	ErrInvalidKey = errors.New("invalid key")
+	// ErrDeploymentMetadataMissing reports indexed state that has no deployment identity.
+	ErrDeploymentMetadataMissing = errors.New("deployment metadata is missing")
+	// ErrDeploymentMetadataMismatch reports an attempt to reuse a DB for another deployment.
+	ErrDeploymentMetadataMismatch = errors.New("deployment metadata does not match")
 )
 
 var (
@@ -62,15 +66,13 @@ var (
 	ErrInvalidBlockRange = errors.New("invalid block range")
 	// ErrNotificationConnectionLost reports a retryable PostgreSQL LISTEN/NOTIFY connection failure.
 	ErrNotificationConnectionLost = errors.New("notification connection lost")
-	// ErrStartBlockHeightMismatch reports that a requested start height conflicts with persisted metadata.
-	ErrStartBlockHeightMismatch = errors.New("start block height does not match persisted start block height")
-	// ErrInvalidIndexedBounds reports inconsistent persisted cursor or stored record bounds.
-	ErrInvalidIndexedBounds = errors.New("persisted index bounds are invalid")
 )
 
 var (
 	// ErrGRPCAddressRequired reports that grpc_listen_address is missing from config.
 	ErrGRPCAddressRequired = errors.New("grpc_listen_address is required")
+	// ErrInvalidGRPCListenAddress reports that grpc_listen_address is not a literal loopback TCP address.
+	ErrInvalidGRPCListenAddress = errors.New("grpc_listen_address must be a literal loopback TCP address")
 	// ErrContractAddressRequired reports that contract_address is missing from bridge params.
 	ErrContractAddressRequired = errors.New("contract_address is required")
 	// ErrBlockHeightDBKeyRequired reports that block_height_database_key is missing from config.
@@ -81,6 +83,14 @@ var (
 	ErrDBAlreadyExists = errors.New("db already exists")
 	// ErrControlSocketPathRequired reports that the control socket path is missing from config.
 	ErrControlSocketPathRequired = errors.New("control socket path is required")
+	// ErrDeploymentMetadataKeyRequired reports that the deployment metadata key is missing from config.
+	ErrDeploymentMetadataKeyRequired = errors.New("deployment metadata database key is required")
+	// ErrDeploymentMetadataKeyConflict reports overlap with another LevelDB key namespace.
+	ErrDeploymentMetadataKeyConflict = errors.New("deployment metadata database key conflicts with reserved keys")
+	// ErrDeploymentSchemaVersionRequired reports that the deployment schema version is missing from config.
+	ErrDeploymentSchemaVersionRequired = errors.New("deployment schema version is required")
+	// ErrMinaNetworkIDRequired reports that mina_network_id is missing from config.
+	ErrMinaNetworkIDRequired = errors.New("mina_network_id is required")
 	// ErrConfirmationDepthRequired reports that confirmation_depth is missing or non-positive in bridge params.
 	ErrConfirmationDepthRequired = errors.New("confirmation_depth is required and must be greater than 0")
 	// ErrStartBlockHeightRequired reports that start_block_height is missing or non-positive in bridge params.

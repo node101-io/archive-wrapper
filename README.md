@@ -5,9 +5,12 @@ configured zkApp's actions from the archive PostgreSQL database, follows the
 confirmed best chain, stores indexed actions and cursor metadata in LevelDB,
 and exposes read-only gRPC queries for the validator application.
 
-The sidecar is intended to remain local to the validator host. The sample
-configuration binds gRPC to `127.0.0.1:9095`; keep it on a loopback address
-unless the deployment has an equivalent local access boundary.
+The sidecar is local to the validator host. The wrapper enforces a literal
+loopback gRPC listen address such as `127.0.0.1:9095` or `[::1]:9095`; hostnames,
+unspecified addresses, and non-loopback IP addresses are rejected. Pulsar and
+the wrapper must therefore share a network namespace. Deployments across
+separate container networks require a separately designed Unix socket or
+TLS/mTLS transport.
 
 ## Requirements
 
@@ -32,14 +35,17 @@ fields are:
 | `db_path` | Local LevelDB directory. |
 | `grpc_listen_address` | TCP address for the local query server. |
 | `control_socket_path` | Unix socket used by the `stop` command. |
+| `deployment_metadata_key` | LevelDB key used to store deployment identity. |
+| `deployment_metadata.schema_version` | Stored deployment metadata schema version. |
+| `deployment_metadata.mina_network_id` | Mina network whose archive database is indexed. |
 
-The first start persists the `bridge.start_block_height` value loaded from
-Pulsar genesis as the earliest indexed height. Later starts must see the same
-genesis value when reusing an existing LevelDB directory. The latest cursor is
-advanced only after a block has been fetched successfully; action-bearing
-blocks are stored before the cursor update. A missing best-chain block or a
-temporary PostgreSQL failure leaves the cursor available for retry after
-restart or reconnection.
+The first start binds the LevelDB database to its schema version, Mina network,
+contract address, and genesis start height. `proceed` requires those values to
+match before connecting to PostgreSQL. To change deployment identity, use a
+new `db_path` and run `start`. The latest cursor is advanced only after a block
+has been fetched successfully; action-bearing blocks are stored before the
+cursor update. A missing best-chain block or a temporary PostgreSQL failure
+leaves the cursor available for retry after restart or reconnection.
 
 ## Build and run
 
@@ -81,19 +87,21 @@ make start CONFIG=/path/to/config.yaml
 `bridge.start_block_height`, and `bridge.max_block_range` from
 `/path/to/validator/config/genesis.json`, catches up to the archive tip minus
 that depth, and then follows the PostgreSQL `blocks_inserted` notifications.
-Query and notification connection failures are retried while the process is
-running.
+Notifications are wake-up signals only: after each notification, the wrapper
+queries the authoritative archive tip and reconciles from its persisted LevelDB
+cursor. Payload contents, duplicate notifications, and coalesced notifications
+do not determine the indexed range. Query and notification connection failures
+are retried while the process is running.
 
-If the LevelDB already has a persisted cursor and you want to resume
-explicitly from it, use:
+To resume an existing LevelDB, use:
 
 ```sh
 make proceed
 ```
 
-`proceed` requires an existing latest processed block height in LevelDB. It
-keeps the genesis start height for bounds validation, then resumes indexing
-from the persisted cursor already stored in the local database.
+`proceed` accepts an existing LevelDB even before its first cursor is written.
+It resumes from the persisted cursor when present, or continues the initial
+sync from the genesis start height when the cursor is still missing.
 
 Stop the running process through its Unix control socket:
 
@@ -158,13 +166,46 @@ Blocks with no supported actions are still recorded by advancing the cursor.
 The gRPC endpoint has no public authentication or authorization layer, so it
 must stay bound to a trusted local interface.
 
+### Health and diagnostics
+
+The standard gRPC health service reports whether the query API is ready for
+use. Both the overall server (`""`) and `query.Query` remain `NOT_SERVING`
+during initial PostgreSQL connection, initial catch-up, finality waiting, and
+PostgreSQL reconnection. They become `SERVING` only after a successful sync has
+created or recovered the local indexed-height cursor. A successful PostgreSQL
+Ping proves connectivity but does not make the query API ready.
+
+The read-only `diagnostics.DiagnosticsService` remains available while the
+query API is starting or reconnecting. It reports the operational state,
+archive and target heights, indexed height, confirmed lag, and timestamps for
+the latest successful sync and operational error. Supported states are
+`STARTING`, `CONNECTING`, `SYNCING`, `WAITING_FOR_FINALITY`, `READY`,
+`RECONNECTING`, `FAILED`, and `STOPPING`.
+
+For example, with the default listen address:
+
+```sh
+grpcurl -plaintext \
+  -d '{"service":"query.Query"}' \
+  127.0.0.1:9095 grpc.health.v1.Health/Check
+
+grpcurl -plaintext \
+  -d '{}' \
+  127.0.0.1:9095 diagnostics.DiagnosticsService/GetStatus
+```
+
+Health status is advisory and does not reject query RPCs server-side. Clients
+that require readiness gating must check or enable gRPC health checking.
+
 ## Development checks
 
 ```sh
 make fmt
 make lint
+make proto
 buf lint
 ```
 
-`make lint` runs `golangci-lint` with the `purego` build tag, while `buf lint`
-checks the protobuf sources.
+`make lint` runs `golangci-lint` with the `purego` build tag, `make proto`
+regenerates checked-in protobuf Go code, and `buf lint` checks the protobuf
+sources.
