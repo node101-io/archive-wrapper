@@ -211,7 +211,7 @@ func TestSyncToAfterCursorlessRestartDoesNotStoreEmptyBlock(t *testing.T) {
 	db, err := database.NewDbManager(dbPath, blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
 	// Persisted deployment metadata represents initialization before the first cursor.
-	require.NoError(t, db.EnsureDeploymentMetadata(
+	state, err := db.InitializeOrValidateDeployment(
 		"archive-wrapper:deployment",
 		database.DeploymentMetadata{
 			SchemaVersion:   1,
@@ -219,7 +219,9 @@ func TestSyncToAfterCursorlessRestartDoesNotStoreEmptyBlock(t *testing.T) {
 			ContractAddress: testContractAddress,
 			StartHeight:     10,
 		},
-	))
+	)
+	require.NoError(t, err)
+	require.Equal(t, database.DeploymentStateFresh, state)
 	// Reopen after initialization to simulate a restart before the first cursor.
 	require.NoError(t, db.Close())
 

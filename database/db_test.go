@@ -1,15 +1,21 @@
 package database
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
 
+	proto "github.com/cosmos/gogoproto/proto"
 	"github.com/stretchr/testify/require"
+	leveldbErrors "github.com/syndtr/goleveldb/leveldb/errors"
+	"github.com/syndtr/goleveldb/leveldb/storage"
 )
 
 const blockHeightDatabaseKey = "db-key"
@@ -108,14 +114,17 @@ func TestDbManagerInsertBlockHeightRejectsRegression(t *testing.T) {
 	require.True(t, errors.Is(err, apperrors.ErrBlockHeightRegression))
 }
 
-func TestDbManagerEnsureDeploymentMetadataPersistsAndAcceptsMatch(t *testing.T) {
+func TestDbManagerInitializeOrValidateDeploymentIsIdempotent(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	dbPath := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "wrapper-db")
 	metadata := testDeploymentMetadata()
 
 	manager, err := NewDbManager(dbPath, blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
-	require.NoError(t, manager.EnsureDeploymentMetadata("archive-wrapper:deployment", metadata))
+	state, err := manager.InitializeOrValidateDeployment("archive-wrapper:deployment", metadata)
+	require.NoError(t, err)
+	require.Equal(t, DeploymentStateFresh, state)
+	require.NoError(t, manager.InsertBlockHeight(10))
 	require.NoError(t, manager.Close())
 
 	manager, err = NewDbManager(dbPath, blockHeightDatabaseKey, logger)
@@ -124,10 +133,26 @@ func TestDbManagerEnsureDeploymentMetadataPersistsAndAcceptsMatch(t *testing.T) 
 		require.NoError(t, manager.Close())
 	}()
 
-	require.NoError(t, manager.EnsureDeploymentMetadata("archive-wrapper:deployment", metadata))
+	state, err = manager.InitializeOrValidateDeployment("archive-wrapper:deployment", metadata)
+	require.NoError(t, err)
+	require.Equal(t, DeploymentStateInitialized, state)
+	height, err := manager.GetBlockHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(10), height)
 }
 
-func TestDbManagerEnsureDeploymentMetadataRejectsMismatch(t *testing.T) {
+func TestDbManagerInitializeOrValidateDeploymentAcceptsExistingEmptyDirectory(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	state, err := manager.InitializeOrValidateDeployment("archive-wrapper:deployment", testDeploymentMetadata())
+	require.NoError(t, err)
+	require.Equal(t, DeploymentStateFresh, state)
+}
+
+func TestDbManagerInitializeOrValidateDeploymentRejectsMismatch(t *testing.T) {
 	want := testDeploymentMetadata()
 	tests := []struct {
 		name   string
@@ -168,39 +193,55 @@ func TestDbManagerEnsureDeploymentMetadataRejectsMismatch(t *testing.T) {
 				require.NoError(t, manager.Close())
 			}()
 
-			require.NoError(t, manager.EnsureDeploymentMetadata("archive-wrapper:deployment", want))
+			state, err := manager.InitializeOrValidateDeployment("archive-wrapper:deployment", want)
+			require.NoError(t, err)
+			require.Equal(t, DeploymentStateFresh, state)
 
 			got := want
 			tt.mutate(&got)
-			err = manager.EnsureDeploymentMetadata("archive-wrapper:deployment", got)
+			_, err = manager.InitializeOrValidateDeployment("archive-wrapper:deployment", got)
 			require.ErrorIs(t, err, apperrors.ErrDeploymentMetadataMismatch)
 		})
 	}
 }
 
-func TestDbManagerEnsureDeploymentMetadataRejectsIndexedDatabaseWithoutMetadata(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, manager.Close())
-	}()
+func TestDbManagerInitializeOrValidateDeploymentRejectsStateWithoutMetadata(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   []byte
+		value []byte
+	}{
+		{name: "cursor", key: []byte(blockHeightDatabaseKey), value: encodeBlockHeight(10)},
+		{name: "block record", key: encodeBlockHeight(10), value: []byte("record")},
+		{name: "unknown application key", key: []byte("unknown-key"), value: []byte("value")},
+	}
 
-	require.NoError(t, manager.InsertBlockHeight(10))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, manager.Close()) }()
+			require.NoError(t, manager.db.Put(tt.key, tt.value, nil))
 
-	err = manager.EnsureDeploymentMetadata("archive-wrapper:deployment", testDeploymentMetadata())
-	require.ErrorIs(t, err, apperrors.ErrDeploymentMetadataMissing)
+			state, err := manager.InitializeOrValidateDeployment("archive-wrapper:deployment", testDeploymentMetadata())
+			require.ErrorIs(t, err, apperrors.ErrDBStateIncomplete)
+			require.Equal(t, DeploymentStateUnspecified, state)
+		})
+	}
 }
 
-func TestDbManagerEnsureDeploymentMetadataAllowsInitializedDatabaseWithoutCursor(t *testing.T) {
+func TestDbManagerInitializeOrValidateDeploymentAllowsInitializedDatabaseWithoutCursor(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	dbPath := t.TempDir()
 	manager, err := NewDbManager(dbPath, blockHeightDatabaseKey, logger)
 	require.NoError(t, err)
-	require.NoError(t, manager.EnsureDeploymentMetadata(
+	state, err := manager.InitializeOrValidateDeployment(
 		"archive-wrapper:deployment",
 		testDeploymentMetadata(),
-	))
+	)
+	require.NoError(t, err)
+	require.Equal(t, DeploymentStateFresh, state)
 	require.NoError(t, manager.Close())
 
 	manager, err = NewDbManager(dbPath, blockHeightDatabaseKey, logger)
@@ -209,13 +250,204 @@ func TestDbManagerEnsureDeploymentMetadataAllowsInitializedDatabaseWithoutCursor
 		require.NoError(t, manager.Close())
 	}()
 
-	require.NoError(t, manager.EnsureDeploymentMetadata(
+	state, err = manager.InitializeOrValidateDeployment(
 		"archive-wrapper:deployment",
 		testDeploymentMetadata(),
-	))
+	)
+	require.NoError(t, err)
+	require.Equal(t, DeploymentStateInitialized, state)
 	hasCursor, err := manager.HasBlockHeight()
 	require.NoError(t, err)
 	require.False(t, hasCursor)
+}
+
+func TestDbManagerInitializeOrValidateDeploymentRejectsMalformedState(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*DbManager)
+	}{
+		{
+			name: "malformed metadata",
+			setup: func(manager *DbManager) {
+				require.NoError(t, manager.db.Put([]byte("archive-wrapper:deployment"), []byte("{"), nil))
+			},
+		},
+		{
+			name: "unknown metadata field",
+			setup: func(manager *DbManager) {
+				metadata := []byte(`{"schema_version":1,"mina_network_id":"testnet","contract_address":"B62qContract","start_height":10,"unknown":true}`)
+				require.NoError(t, manager.db.Put([]byte("archive-wrapper:deployment"), metadata, nil))
+			},
+		},
+		{
+			name: "malformed cursor",
+			setup: func(manager *DbManager) {
+				writeDeploymentMetadata(t, manager)
+				require.NoError(t, manager.db.Put([]byte(blockHeightDatabaseKey), []byte{1, 2, 3}, nil))
+			},
+		},
+		{
+			name: "zero cursor",
+			setup: func(manager *DbManager) {
+				writeDeploymentMetadata(t, manager)
+				require.NoError(t, manager.db.Put([]byte(blockHeightDatabaseKey), encodeBlockHeight(0), nil))
+			},
+		},
+		{
+			name: "negative cursor",
+			setup: func(manager *DbManager) {
+				writeDeploymentMetadata(t, manager)
+				require.NoError(t, manager.db.Put([]byte(blockHeightDatabaseKey), encodeBlockHeight(-1), nil))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, manager.Close()) }()
+			tt.setup(manager)
+
+			state, err := manager.InitializeOrValidateDeployment("archive-wrapper:deployment", testDeploymentMetadata())
+			require.ErrorIs(t, err, apperrors.ErrDBCorrupt)
+			require.Equal(t, DeploymentStateUnspecified, state)
+		})
+	}
+}
+
+func TestDbManagerInitializeOrValidateDeploymentRejectsInvalidExpectedMetadata(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*DeploymentMetadata)
+		wantErr error
+	}{
+		{name: "schema version", mutate: func(m *DeploymentMetadata) { m.SchemaVersion = 0 }, wantErr: apperrors.ErrDeploymentSchemaVersionRequired},
+		{name: "Mina network", mutate: func(m *DeploymentMetadata) { m.MinaNetworkID = "" }, wantErr: apperrors.ErrMinaNetworkIDRequired},
+		{name: "contract address", mutate: func(m *DeploymentMetadata) { m.ContractAddress = "" }, wantErr: apperrors.ErrContractAddressRequired},
+		{name: "start height", mutate: func(m *DeploymentMetadata) { m.StartHeight = 0 }, wantErr: apperrors.ErrStartBlockHeightRequired},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, manager.Close()) }()
+			metadata := testDeploymentMetadata()
+			tt.mutate(&metadata)
+
+			state, err := manager.InitializeOrValidateDeployment("archive-wrapper:deployment", metadata)
+			require.ErrorIs(t, err, tt.wantErr)
+			require.Equal(t, DeploymentStateUnspecified, state)
+		})
+	}
+}
+
+func TestNewDbManagerClassifiesLockedDatabase(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dbPath := t.TempDir()
+	owner, err := NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, owner.Close()) }()
+
+	contender, err := NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.Nil(t, contender)
+	require.ErrorIs(t, err, apperrors.ErrDBLocked)
+}
+
+func TestWrapDatabaseErrorClassifiesCorruption(t *testing.T) {
+	cause := leveldbErrors.NewErrCorrupted(storage.FileDesc{}, errors.New("bad table"))
+	err := wrapDatabaseError("read table", cause)
+	require.ErrorIs(t, err, apperrors.ErrDBCorrupt)
+	require.ErrorIs(t, err, cause)
+}
+
+func TestNewDbManagerClassifiesCorruptedDatabase(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dbPath := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dbPath, "CURRENT"), []byte("MANIFEST-000001\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dbPath, "MANIFEST-000001"), []byte("garbage"), 0o600))
+
+	manager, err := NewDbManager(dbPath, blockHeightDatabaseKey, logger)
+	require.Nil(t, manager)
+	require.ErrorIs(t, err, apperrors.ErrDBCorrupt)
+}
+
+func TestNewDbManagerDoesNotMisclassifyFilesystemError(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	path := filepath.Join(t.TempDir(), "db-file")
+	require.NoError(t, os.WriteFile(path, []byte("not a directory"), 0o600))
+
+	manager, err := NewDbManager(path, blockHeightDatabaseKey, logger)
+	require.Nil(t, manager)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, apperrors.ErrDBLocked)
+	require.NotErrorIs(t, err, apperrors.ErrDBCorrupt)
+}
+
+func TestDbManagerGetRejectsCorruptPersistedRecord(t *testing.T) {
+	tests := []struct {
+		name      string
+		height    int64
+		persisted []byte
+	}{
+		{name: "malformed protobuf", height: 10, persisted: []byte{0xff}},
+		{
+			name:   "record key mismatch",
+			height: 10,
+			persisted: marshalRecord(t, actions.DbRecord{
+				Key: 11,
+				Actions: []*actions.Action{{
+					BlockHeight: 11,
+					FeePayer:    []byte("alice"),
+					ActionType:  actions.ActionType_DEPOSIT,
+					Amount:      1,
+				}},
+			}),
+		},
+		{
+			name:   "invalid action",
+			height: 10,
+			persisted: marshalRecord(t, actions.DbRecord{
+				Key: 10,
+				Actions: []*actions.Action{{
+					BlockHeight: 10,
+					FeePayer:    []byte("alice"),
+					ActionType:  actions.ActionType_DEPOSIT,
+					Amount:      0,
+				}},
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, manager.Close()) }()
+			require.NoError(t, manager.db.Put(encodeBlockHeight(tt.height), tt.persisted, nil))
+
+			_, err = manager.Get(tt.height)
+			require.ErrorIs(t, err, apperrors.ErrDBCorrupt)
+		})
+	}
+}
+
+func writeDeploymentMetadata(t *testing.T, manager *DbManager) {
+	t.Helper()
+	encoded, err := json.Marshal(testDeploymentMetadata())
+	require.NoError(t, err)
+	require.NoError(t, manager.db.Put([]byte("archive-wrapper:deployment"), encoded, nil))
+}
+
+func marshalRecord(t *testing.T, record actions.DbRecord) []byte {
+	t.Helper()
+	encoded, err := proto.Marshal(&record)
+	require.NoError(t, err)
+	return encoded
 }
 
 func testDeploymentMetadata() DeploymentMetadata {

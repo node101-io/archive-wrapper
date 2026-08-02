@@ -23,10 +23,14 @@ var (
 	ErrBlockHeightMustBeBiggerThanZero = errors.New("block height must be bigger than zero")
 	// ErrInvalidKey reports that a stored block record key does not match its action heights.
 	ErrInvalidKey = errors.New("invalid key")
-	// ErrDeploymentMetadataMissing reports indexed state that has no deployment identity.
-	ErrDeploymentMetadataMissing = errors.New("deployment metadata is missing")
 	// ErrDeploymentMetadataMismatch reports an attempt to reuse a DB for another deployment.
 	ErrDeploymentMetadataMismatch = errors.New("deployment metadata does not match")
+	// ErrDBLocked reports that another process owns the configured LevelDB.
+	ErrDBLocked = errors.New("database is locked")
+	// ErrDBCorrupt reports malformed or corrupted persisted wrapper state.
+	ErrDBCorrupt = errors.New("database state is corrupt")
+	// ErrDBStateIncomplete reports application data without deployment identity.
+	ErrDBStateIncomplete = errors.New("database state is incomplete")
 )
 
 var (

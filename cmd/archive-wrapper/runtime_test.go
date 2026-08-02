@@ -20,12 +20,14 @@ func TestRunStartRejectsDeploymentMismatchBeforePostgres(t *testing.T) {
 
 	db, err := database.NewDbManager(dbPath, "db-key", logger)
 	require.NoError(t, err)
-	require.NoError(t, db.EnsureDeploymentMetadata("metadata-key", database.DeploymentMetadata{
+	state, err := db.InitializeOrValidateDeployment("metadata-key", database.DeploymentMetadata{
 		SchemaVersion:   1,
 		MinaNetworkID:   "testnet",
 		ContractAddress: "contract-a",
 		StartHeight:     10,
-	}))
+	})
+	require.NoError(t, err)
+	require.Equal(t, database.DeploymentStateFresh, state)
 	require.NoError(t, db.Close())
 	t.Setenv("POSTGRES_URI", "")
 

@@ -100,9 +100,11 @@ func runStart(ctx context.Context, cfg config.Config,
 	}()
 
 	// Reject a mismatched deployment before opening external network connections.
-	if err := db.EnsureDeploymentMetadata(cfg.DeploymentMetadataKey, cfg.DeploymentMetadata); err != nil {
+	deploymentState, err := db.InitializeOrValidateDeployment(cfg.DeploymentMetadataKey, cfg.DeploymentMetadata)
+	if err != nil {
 		return err
 	}
+	runtimeLogger.Info("deployment state validated", "state", deploymentState)
 
 	ln, err := listenControlSocket(cfg.ControlSocketPath, cancel, logger)
 	if err != nil {
