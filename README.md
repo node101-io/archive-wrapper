@@ -81,6 +81,13 @@ Build the pure-Go binary with:
 make build
 ```
 
+Build metadata is embedded from `VERSION`, `COMMIT_SHA`, and the current
+commit timestamp. Inspect it without initializing logging or runtime resources:
+
+```sh
+./archive-wrapper version
+```
+
 Run the sidecar. `CHAIN_HOME` is optional when chain home is already supplied by
 `chain_home` or `ARCHIVE_WRAPPER_CHAIN_HOME`:
 
@@ -157,6 +164,28 @@ The supported process environment variables are:
 - `ARCHIVE_WRAPPER_LOG_PATH` — optional append-only log path. Logs always go to
   `stderr`; when this value is non-empty they are also written to the selected
   file. Newly created log files use mode `0600`.
+- `ARCHIVE_WRAPPER_HEALTHCHECK_ADDRESS` — optional explicit target for the
+  short-lived healthcheck command. It takes precedence over the effective gRPC
+  listen address.
+
+## Container image
+
+The repository builds a pinned, multi-stage, non-root image for `linux/amd64`
+and `linux/arm64`. It contains only the statically linked wrapper binary and
+distroless runtime files; config, genesis, database state, `.env` files, and
+credentials must be mounted or injected at runtime.
+
+```sh
+make docker-build
+make docker-build-multiarch
+make docker-inspect
+make docker-test
+```
+
+The image defaults to `run`, handles `SIGTERM`, and includes an exec-form
+healthcheck against `query.Query`. Detailed mount, ownership, read-only
+filesystem, restart, and image update requirements are documented in
+[`docs/container.md`](docs/container.md).
 
 ## gRPC queries
 
@@ -184,6 +213,18 @@ during initial PostgreSQL connection, initial catch-up, finality waiting, and
 PostgreSQL reconnection. They become `SERVING` only after a successful sync has
 created or recovered the local indexed-height cursor. A successful PostgreSQL
 Ping proves connectivity but does not make the query API ready.
+
+The native probe applies the same effective listener configuration as `run`.
+Only `SERVING` exits successfully:
+
+```sh
+./archive-wrapper healthcheck --config config.yaml --timeout 3s
+./archive-wrapper healthcheck --address 127.0.0.1:9095 --timeout 3s
+```
+
+An explicit `--address` does not require a config file. When the configured
+listener is `0.0.0.0` or `[::]`, the probe connects through the corresponding
+loopback address inside the container.
 
 The read-only `diagnostics.DiagnosticsService` remains available while the
 query API is starting or reconnecting. It reports the operational state,
