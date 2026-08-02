@@ -5,9 +5,12 @@ configured zkApp's actions from the archive PostgreSQL database, follows the
 confirmed best chain, stores indexed actions and cursor metadata in LevelDB,
 and exposes read-only gRPC queries for the validator application.
 
-The sidecar is intended to remain local to the validator host. The sample
-configuration binds gRPC to `127.0.0.1:9095`; keep it on a loopback address
-unless the deployment has an equivalent local access boundary.
+The sidecar is local to the validator host. The wrapper enforces a literal
+loopback gRPC listen address such as `127.0.0.1:9095` or `[::1]:9095`; hostnames,
+unspecified addresses, and non-loopback IP addresses are rejected. Pulsar and
+the wrapper must therefore share a network namespace. Deployments across
+separate container networks require a separately designed Unix socket or
+TLS/mTLS transport.
 
 ## Requirements
 

@@ -239,6 +239,10 @@ func registerGRPCServices(grpcServer *grpc.Server, queryService query.QueryServe
 
 func runStart(ctx context.Context, cfg config.Config,
 	bridgeParams bridgeParams, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
 	runtimeLogger := logger.With("component", "runtime")
 	// Complete deployment metadata with canonical genesis values.
 	cfg.DeploymentMetadata.ContractAddress = bridgeParams.ContractAddress

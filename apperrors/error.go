@@ -71,6 +71,8 @@ var (
 var (
 	// ErrGRPCAddressRequired reports that grpc_listen_address is missing from config.
 	ErrGRPCAddressRequired = errors.New("grpc_listen_address is required")
+	// ErrInvalidGRPCListenAddress reports that grpc_listen_address is not a literal loopback TCP address.
+	ErrInvalidGRPCListenAddress = errors.New("grpc_listen_address must be a literal loopback TCP address")
 	// ErrContractAddressRequired reports that contract_address is missing from bridge params.
 	ErrContractAddressRequired = errors.New("contract_address is required")
 	// ErrBlockHeightDBKeyRequired reports that block_height_database_key is missing from config.

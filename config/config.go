@@ -2,6 +2,9 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/netip"
+	"strconv"
 	"strings"
 
 	"github.com/node101-io/archive-wrapper/apperrors"
@@ -46,32 +49,73 @@ func Load(configFile string) (Config, error) {
 	cfg.DeploymentMetadataKey = strings.TrimSpace(cfg.DeploymentMetadataKey)
 	cfg.DeploymentMetadata.MinaNetworkID = strings.TrimSpace(cfg.DeploymentMetadata.MinaNetworkID)
 
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+
+	return cfg, nil
+}
+
+// Validate checks the static settings required before starting the wrapper.
+func (cfg Config) Validate() error {
 	if cfg.GRPCListenAddress == "" {
-		return Config{}, apperrors.ErrGRPCAddressRequired
+		return apperrors.ErrGRPCAddressRequired
+	}
+	if err := validateGRPCListenAddress(cfg.GRPCListenAddress); err != nil {
+		return err
 	}
 	if cfg.BlockHeightDatabaseKey == "" {
-		return Config{}, apperrors.ErrBlockHeightDBKeyRequired
+		return apperrors.ErrBlockHeightDBKeyRequired
 	}
 	if cfg.DBPath == "" {
-		return Config{}, apperrors.ErrDBPathRequired
+		return apperrors.ErrDBPathRequired
 	}
 	if cfg.ControlSocketPath == "" {
-		return Config{}, apperrors.ErrControlSocketPathRequired
+		return apperrors.ErrControlSocketPathRequired
 	}
 	if cfg.DeploymentMetadataKey == "" {
-		return Config{}, apperrors.ErrDeploymentMetadataKeyRequired
+		return apperrors.ErrDeploymentMetadataKeyRequired
 	}
 	// Metadata must not overlap cursor or 8-byte block-record keys.
 	if cfg.DeploymentMetadataKey == cfg.BlockHeightDatabaseKey ||
 		len(cfg.DeploymentMetadataKey) == 8 {
-		return Config{}, apperrors.ErrDeploymentMetadataKeyConflict
+		return apperrors.ErrDeploymentMetadataKeyConflict
 	}
 	if cfg.DeploymentMetadata.SchemaVersion == 0 {
-		return Config{}, apperrors.ErrDeploymentSchemaVersionRequired
+		return apperrors.ErrDeploymentSchemaVersionRequired
 	}
 	if cfg.DeploymentMetadata.MinaNetworkID == "" {
-		return Config{}, apperrors.ErrMinaNetworkIDRequired
+		return apperrors.ErrMinaNetworkIDRequired
 	}
 
-	return cfg, nil
+	return nil
+}
+
+func validateGRPCListenAddress(address string) error {
+	if address != strings.TrimSpace(address) {
+		return fmt.Errorf("%w: surrounding whitespace is not allowed", apperrors.ErrInvalidGRPCListenAddress)
+	}
+
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("%w: %v", apperrors.ErrInvalidGRPCListenAddress, err)
+	}
+
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return fmt.Errorf("%w: host must be a literal IP address", apperrors.ErrInvalidGRPCListenAddress)
+	}
+	if ip.Zone() != "" {
+		return fmt.Errorf("%w: scoped IPv6 addresses are not allowed", apperrors.ErrInvalidGRPCListenAddress)
+	}
+	if !ip.IsLoopback() {
+		return fmt.Errorf("%w: IP address is not loopback", apperrors.ErrInvalidGRPCListenAddress)
+	}
+
+	parsedPort, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || parsedPort == 0 {
+		return fmt.Errorf("%w: port must be between 1 and 65535", apperrors.ErrInvalidGRPCListenAddress)
+	}
+
+	return nil
 }
