@@ -17,11 +17,11 @@ const (
 )
 
 func main() {
-	os.Exit(runMain(os.Args[1:], os.Stderr))
+	os.Exit(runMain(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func runMain(args []string, stderr io.Writer) (exitCode int) {
-	if handled, code := runShortCommand(args, stderr, os.LookupEnv); handled {
+func runMain(args []string, stdout, stderr io.Writer) (exitCode int) {
+	if handled, code := runShortCommand(args, stdout, stderr, os.LookupEnv); handled {
 		return code
 	}
 

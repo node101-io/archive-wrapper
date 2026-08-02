@@ -22,3 +22,12 @@ func TestWriteVersion(t *testing.T) {
 		output.String(),
 	)
 }
+
+func TestRunMainWritesVersionToStdoutWithoutLogger(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	exitCode := runMain([]string{"version"}, &stdout, &stderr)
+
+	require.Equal(t, exitCodeSuccess, exitCode)
+	require.Contains(t, stdout.String(), "archive-wrapper version=")
+	require.Empty(t, stderr.String())
+}

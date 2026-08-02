@@ -126,7 +126,11 @@ func TestRunMainHealthcheckDoesNotInitializeRuntimeLogger(t *testing.T) {
 	t.Setenv("ARCHIVE_WRAPPER_LOG_PATH", logPath)
 	var stderr bytes.Buffer
 
-	exitCode := runMain([]string{"healthcheck", "--address", "127.0.0.1:1", "--timeout", "10ms"}, &stderr)
+	exitCode := runMain(
+		[]string{"healthcheck", "--address", "127.0.0.1:1", "--timeout", "10ms"},
+		&bytes.Buffer{},
+		&stderr,
+	)
 	require.Equal(t, exitCodeFailure, exitCode)
 	_, err := os.Stat(logPath)
 	require.ErrorIs(t, err, os.ErrNotExist)

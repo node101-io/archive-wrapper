@@ -146,6 +146,7 @@ func checkQueryHealth(ctx context.Context, address string) error {
 
 func runShortCommand(
 	args []string,
+	stdout io.Writer,
 	stderr io.Writer,
 	lookupEnv func(string) (string, bool),
 ) (bool, int) {
@@ -165,7 +166,11 @@ func runShortCommand(
 			_, _ = fmt.Fprintln(stderr, "version does not accept arguments")
 			return true, exitCodeFailure
 		}
-		if err := writeVersion(stderr); err != nil {
+		if stdout == nil {
+			_, _ = fmt.Fprintln(stderr, "stdout writer is required")
+			return true, exitCodeFailure
+		}
+		if err := writeVersion(stdout); err != nil {
 			return true, exitCodeFailure
 		}
 		return true, exitCodeSuccess

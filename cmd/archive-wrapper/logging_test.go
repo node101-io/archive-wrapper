@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -75,7 +76,7 @@ func TestRunMainReturnsFailureWithoutCreatingDefaultLogFile(t *testing.T) {
 	))
 	var stderr bytes.Buffer
 
-	exitCode := runMain(nil, &stderr)
+	exitCode := runMain(nil, io.Discard, &stderr)
 	require.Equal(t, exitCodeFailure, exitCode)
 	require.Contains(t, stderr.String(), "destination=stderr")
 	require.Contains(t, stderr.String(), "missing command")
