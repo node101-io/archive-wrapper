@@ -16,6 +16,12 @@ cleanup() {
   if (( status != 0 )); then
     "${compose[@]}" ps >&2 || true
     "${compose[@]}" logs --no-color >&2 || true
+    if [[ -n ${ARCHIVE_WRAPPER_ARTIFACT_DIR:-} ]]; then
+      mkdir -p "$ARCHIVE_WRAPPER_ARTIFACT_DIR"
+      "${compose[@]}" ps --all >"$ARCHIVE_WRAPPER_ARTIFACT_DIR/compose-ps.txt" 2>&1 || true
+      "${compose[@]}" logs --no-color >"$ARCHIVE_WRAPPER_ARTIFACT_DIR/compose.log" 2>&1 || true
+      docker image inspect "$image" >"$ARCHIVE_WRAPPER_ARTIFACT_DIR/image-inspect.json" 2>&1 || true
+    fi
   fi
   if [[ -n $inspect_container_id ]]; then
     docker rm --force "$inspect_container_id" >/dev/null 2>&1 || true

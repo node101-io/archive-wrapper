@@ -31,7 +31,7 @@ export ARCHIVE_WRAPPER_LOG_PATH
 export ARCHIVE_WRAPPER_HEALTHCHECK_ADDRESS
 CONFIG ?= config.yaml
 
-.PHONY: ensure-cache ensure-docker-builder proto fmt test lint build run stop docker-build docker-build-multiarch docker-inspect docker-test reproducible-build
+.PHONY: ensure-cache ensure-docker-builder proto fmt test lint build run stop docker-build docker-build-multiarch docker-inspect docker-test reproducible-build reproducible-image
 
 ensure-cache:
 	mkdir -p "$(GOCACHE)" "$(GOLANGCI_LINT_CACHE)"
@@ -65,6 +65,7 @@ docker-build: ensure-cache
 docker-build-multiarch: ensure-cache ensure-docker-builder
 	docker buildx build --builder=$(DOCKER_BUILDER) --platform=$(DOCKER_PLATFORMS) \
 		$(DOCKER_BUILD_ARGS) \
+		--provenance=false \
 		--output type=oci,dest=$(OCI_OUTPUT),rewrite-timestamp=true .
 
 docker-inspect: docker-build
@@ -77,6 +78,11 @@ docker-test:
 reproducible-build:
 	VERSION=$(VERSION) COMMIT_SHA=$(COMMIT_SHA) SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
 		BUILD_DATE=$(BUILD_DATE) ./scripts/check-reproducible-build.sh
+
+reproducible-image: ensure-cache ensure-docker-builder
+	VERSION=$(VERSION) COMMIT_SHA=$(COMMIT_SHA) SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
+		BUILD_DATE=$(BUILD_DATE) DOCKER_BUILDER=$(DOCKER_BUILDER) \
+		DOCKER_PLATFORMS=$(DOCKER_PLATFORMS) ./scripts/check-reproducible-image.sh
 
 run: build
 	@test -n "$(CONFIG)" || (echo "CONFIG is required" && exit 1)
