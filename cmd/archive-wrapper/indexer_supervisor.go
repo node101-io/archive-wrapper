@@ -1,0 +1,144 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/node101-io/archive-wrapper/apperrors"
+	"github.com/node101-io/archive-wrapper/database"
+	"github.com/node101-io/archive-wrapper/fetchmina"
+	"github.com/node101-io/archive-wrapper/indexer"
+)
+
+const notificationReconnectDelay = 2 * time.Second
+const postgresProbeTimeout = 5 * time.Second
+
+type postgresPinger interface {
+	Ping(context.Context) error
+}
+
+type reconnectPolicy struct {
+	ProbeTimeout time.Duration
+	RetryDelay   time.Duration
+}
+
+type indexerSession func(context.Context) error
+
+type postgresNotificationConn interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	WaitForNotification(context.Context) (*pgconn.Notification, error)
+	Close(context.Context) error
+}
+
+type notificationConnector func(context.Context, string) (postgresNotificationConn, error)
+
+func superviseIndexer(
+	ctx context.Context,
+	pinger postgresPinger,
+	session indexerSession,
+	readiness *readinessController,
+	policy reconnectPolicy,
+	runtimeLogger *slog.Logger,
+) error {
+
+	for {
+		readiness.Connecting()
+		probeStartedAt := time.Now()
+		probeCtx, cancel := context.WithTimeout(ctx, policy.ProbeTimeout)
+		err := pinger.Ping(probeCtx)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			err = fmt.Errorf("%w: ping postgres query pool: %w", apperrors.ErrQueryConnectionLost, err)
+			runtimeLogger.Warn("postgres query pool ping failed", "duration", time.Since(probeStartedAt), "err", err)
+		} else {
+			runtimeLogger.Info("postgres query pool ping succeeded", "duration", time.Since(probeStartedAt))
+			err = session(ctx)
+		}
+
+		if err == nil || errors.Is(err, context.Canceled) {
+			return err
+		}
+
+		if !errors.Is(err, apperrors.ErrNotificationConnectionLost) &&
+			!errors.Is(err, apperrors.ErrQueryConnectionLost) {
+			readiness.Failed("indexer failed")
+			return err
+		}
+
+		errorSummary := "postgres query connection unavailable"
+		if errors.Is(err, apperrors.ErrNotificationConnectionLost) {
+			errorSummary = "postgres notification connection unavailable"
+		}
+		readiness.Reconnecting(errorSummary)
+		runtimeLogger.Warn("postgres connection lost, reconnecting", "retry_delay", policy.RetryDelay, "err", err)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(policy.RetryDelay):
+		}
+	}
+}
+
+func runIndexerSession(
+	ctx context.Context,
+	postgresURI string,
+	client *fetchmina.MinaClient,
+	db *database.DbManager,
+	startBlockHeight int64,
+	confirmationDepth int64,
+	connectTimeout time.Duration,
+	connect notificationConnector,
+	observer indexer.SyncObserver,
+	logger *slog.Logger,
+	runtimeLogger *slog.Logger,
+) error {
+	runtimeLogger.Info("connecting postgres notification connection")
+
+	connectStartedAt := time.Now()
+	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
+	notificationConn, err := connect(connectCtx, postgresURI)
+	cancel()
+	if err != nil {
+		runtimeLogger.Warn("postgres notification connection failed", "duration", time.Since(connectStartedAt), "err", err)
+		return fmt.Errorf("%w: connect notification connection: %w", apperrors.ErrNotificationConnectionLost, err)
+	}
+	runtimeLogger.Info("postgres notification connection ready", "duration", time.Since(connectStartedAt))
+	defer closeNotificationConn(ctx, notificationConn, runtimeLogger)
+
+	idx, err := indexer.NewIndexer(
+		notificationConn,
+		client,
+		db,
+		startBlockHeight,
+		confirmationDepth,
+		logger,
+		indexer.WithSyncObserver(observer),
+	)
+	if err != nil {
+		return err
+	}
+
+	return idx.Run(ctx)
+}
+
+func connectPostgresNotification(ctx context.Context, postgresURI string) (postgresNotificationConn, error) {
+	return pgx.Connect(ctx, postgresURI)
+}
+
+func closeNotificationConn(ctx context.Context, conn postgresNotificationConn, logger *slog.Logger) {
+	closeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	if err := conn.Close(closeCtx); err != nil {
+		logger.Warn("close notification connection failed", "err", err)
+	}
+}
