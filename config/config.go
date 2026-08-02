@@ -68,6 +68,30 @@ func Resolve(configFile string, overrides Overrides) (Config, error) {
 	return resolve(configFile, overrides, os.LookupEnv, true)
 }
 
+// ResolveGRPCListenAddress resolves only the effective gRPC listener settings.
+// Short-lived probes use this path without requiring chain or database inputs.
+func ResolveGRPCListenAddress(configFile string) (string, error) {
+	if strings.TrimSpace(configFile) == "" {
+		return "", apperrors.ErrConfigPathRequired
+	}
+
+	cfg, err := decode(configFile)
+	if err != nil {
+		return "", err
+	}
+	applyDefaults(&cfg)
+	applyEnvironment(&cfg, os.LookupEnv)
+	normalize(&cfg)
+
+	if cfg.GRPCListenAddress == "" {
+		return "", apperrors.ErrGRPCAddressRequired
+	}
+	if err := validateGRPCListenAddress(cfg.GRPCListenAddress, cfg.EffectiveGRPCTransportMode()); err != nil {
+		return "", err
+	}
+	return cfg.GRPCListenAddress, nil
+}
+
 type lookupEnv func(string) (string, bool)
 
 func resolve(configFile string, overrides Overrides, lookup lookupEnv, requireChainHome bool) (Config, error) {

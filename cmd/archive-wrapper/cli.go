@@ -124,6 +124,8 @@ func usage() string {
 	return `usage:
   archive-wrapper run [--config <path>] [--home <path>] [runtime overrides]
   archive-wrapper stop [--config <path>] [--control-socket-path <path>]
+  archive-wrapper healthcheck [--config <path>] [--address <host:port>] [--timeout <duration>]
+  archive-wrapper version
 `
 }
 

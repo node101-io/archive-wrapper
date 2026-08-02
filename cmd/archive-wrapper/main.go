@@ -21,6 +21,10 @@ func main() {
 }
 
 func runMain(args []string, stderr io.Writer) (exitCode int) {
+	if handled, code := runShortCommand(args, stderr, os.LookupEnv); handled {
+		return code
+	}
+
 	logger, cleanup, err := newRuntimeLogger(stderr, os.LookupEnv)
 	if err != nil {
 		if stderr != nil {
@@ -28,6 +32,7 @@ func runMain(args []string, stderr io.Writer) (exitCode int) {
 		}
 		return exitCodeFailure
 	}
+	logger = logger.With("version", version, "commit", commitSHA, "build_date", buildDate)
 	slog.SetDefault(logger)
 	exitCode = exitCodeSuccess
 	defer func() {

@@ -181,6 +181,32 @@ deployment_metadata:
 	require.ErrorIs(t, err, apperrors.ErrChainHomeRequired)
 }
 
+func TestResolveGRPCListenAddressDoesNotRequireChainHome(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+grpc_listen_address: "127.0.0.1:9090"
+grpc_transport_mode: "loopback"
+`), 0o600))
+
+	got, err := ResolveGRPCListenAddress(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "127.0.0.1:9090", got)
+}
+
+func TestResolveGRPCListenAddressAppliesRuntimeEnvironment(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+grpc_listen_address: "127.0.0.1:9090"
+grpc_transport_mode: "loopback"
+`), 0o600))
+	t.Setenv("ARCHIVE_WRAPPER_GRPC_LISTEN_ADDRESS", "0.0.0.0:9095")
+	t.Setenv("ARCHIVE_WRAPPER_GRPC_TRANSPORT_MODE", "trusted-network")
+
+	got, err := ResolveGRPCListenAddress(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "0.0.0.0:9095", got)
+}
+
 func TestLoadRejectsNonLoopbackGRPCListenAddress(t *testing.T) {
 	for _, address := range []string{
 		"0.0.0.0:9095",
