@@ -140,8 +140,17 @@ func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slo
 
 	controlLogger.Info("control socket listening", "socket_path", sockPath)
 
+	return startControlServer(ln, sockPath, cancel, controlLogger), nil
+}
+
+func startControlServer(
+	listener net.Listener,
+	sockPath string,
+	cancel context.CancelFunc,
+	logger *slog.Logger,
+) *controlServer {
 	server := &controlServer{
-		listener: ln,
+		listener: listener,
 		done:     make(chan struct{}),
 	}
 	go func() {
@@ -150,21 +159,21 @@ func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slo
 			c, err := server.listener.Accept()
 			if err != nil {
 				if !errors.Is(err, net.ErrClosed) {
-					controlLogger.Error("control socket accept failed", "socket_path", sockPath, "err", err)
+					logger.Error("control socket accept failed", "socket_path", sockPath, "err", err)
 				}
 				return
 			}
 
-			shouldStop := handleControlSocketConn(c, sockPath, controlLogger)
+			shouldStop := handleControlSocketConn(c, sockPath, logger)
 			if shouldStop {
-				controlLogger.Info("stop request received via control socket", "socket_path", sockPath)
+				logger.Info("stop request received via control socket", "socket_path", sockPath)
 				cancel()
 				return
 			}
 		}
 	}()
 
-	return server, nil
+	return server
 }
 
 // prepareControlSocket rejects live owners and removes only demonstrably stale sockets.

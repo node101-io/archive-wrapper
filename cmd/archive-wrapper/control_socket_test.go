@@ -20,11 +20,11 @@ func TestCloseControlSocketListenerPreservesReplacementSocket(t *testing.T) {
 		_ = os.Remove(socketPath)
 	})
 
-	server, err := listenControlSocket(socketPath, func() {}, logger)
+	listener, err := net.Listen(network, socketPath)
 	require.NoError(t, err)
 
-	replacement := &replacementListener{Listener: server.listener, path: socketPath}
-	server.listener = replacement
+	replacement := &replacementListener{Listener: listener, path: socketPath}
+	server := startControlServer(replacement, socketPath, func() {}, logger)
 	t.Cleanup(func() {
 		if replacement.replacement != nil {
 			_ = replacement.replacement.Close()
