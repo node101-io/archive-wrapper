@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,12 +29,34 @@ const (
 	controlSocketStopCommand  = "STOP\n"
 )
 
-// closeControlSocketListener leaves filesystem cleanup to the listener implementation.
-func closeControlSocketListener(ln net.Listener) error {
-	if err := ln.Close(); err != nil {
-		return fmt.Errorf("close control socket listener: %w", err)
+type controlServer struct {
+	listener  net.Listener
+	done      chan struct{}
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// Close stops the accept loop. The Unix listener owns socket-file cleanup.
+func (server *controlServer) Close() error {
+	if server == nil {
+		return nil
 	}
-	return nil
+	server.closeOnce.Do(func() {
+		if err := server.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			server.closeErr = fmt.Errorf("close control socket listener: %w", err)
+		}
+	})
+	return server.closeErr
+}
+
+// Done is closed after the accept loop exits.
+func (server *controlServer) Done() <-chan struct{} {
+	if server == nil {
+		done := make(chan struct{})
+		close(done)
+		return done
+	}
+	return server.done
 }
 
 // runStop sends a single shutdown command to the running wrapper process.
@@ -103,7 +126,7 @@ func resolveStopSocketPath(socketPath string, socketPathSet bool, configPath str
 }
 
 // listenControlSocket accepts local commands until the listener closes or STOP arrives.
-func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slog.Logger) (net.Listener, error) {
+func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slog.Logger) (*controlServer, error) {
 	controlLogger := logger.With("component", "control_socket")
 
 	if err := prepareControlSocket(sockPath, logger); err != nil {
@@ -117,9 +140,14 @@ func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slo
 
 	controlLogger.Info("control socket listening", "socket_path", sockPath)
 
+	server := &controlServer{
+		listener: ln,
+		done:     make(chan struct{}),
+	}
 	go func() {
+		defer close(server.done)
 		for {
-			c, err := ln.Accept()
+			c, err := server.listener.Accept()
 			if err != nil {
 				if !errors.Is(err, net.ErrClosed) {
 					controlLogger.Error("control socket accept failed", "socket_path", sockPath, "err", err)
@@ -136,7 +164,7 @@ func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slo
 		}
 	}()
 
-	return ln, nil
+	return server, nil
 }
 
 // prepareControlSocket rejects live owners and removes only demonstrably stale sockets.

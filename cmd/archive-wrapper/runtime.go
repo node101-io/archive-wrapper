@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/node101-io/archive-wrapper/apperrors"
@@ -16,7 +17,6 @@ import (
 	"github.com/node101-io/archive-wrapper/fetchmina"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
 	"github.com/node101-io/archive-wrapper/query"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	grpcHealth "google.golang.org/grpc/health"
 	grpcHealthV1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -32,6 +32,18 @@ type runtimeInputs struct {
 // Service names must match the generated descriptors used by gRPC health clients.
 const queryGRPCServiceName = "query.Query"
 const diagnosticsGRPCServiceName = "diagnostics.DiagnosticsService"
+
+const grpcShutdownTimeout = 10 * time.Second
+
+type grpcStopper interface {
+	GracefulStop()
+	Stop()
+}
+
+type runtimeWorkerResult struct {
+	name string
+	err  error
+}
 
 // registerGRPCServices exposes query, diagnostics, health, and reflection on one server.
 func registerGRPCServices(
@@ -121,12 +133,15 @@ func runRuntime(
 	}
 	runtimeLogger.Info("deployment state validated", "state", deploymentState)
 
-	ln, err := listenControlSocket(cfg.ControlSocketPath, cancel, logger)
+	control, err := listenControlSocket(cfg.ControlSocketPath, cancel, logger)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		retErr = errors.Join(retErr, closeControlSocketListener(ln))
+		if err := control.Close(); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
+		<-control.Done()
 	}()
 
 	runtimeLogger.Info("connecting to postgres")
@@ -172,10 +187,13 @@ func runRuntime(
 	healthServer := registerGRPCServices(grpcServer, queryService, diagnosticsService)
 	readiness := newReadinessController(healthServer, diagnosticsStore)
 
-	// A failure in any worker cancels the shared runtime context.
-	group, runCtx := errgroup.WithContext(ctx)
+	// External cancellation wakes the coordinator; workers are canceled only
+	// after readiness has been withdrawn.
+	runCtx, cancelRuntime := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelRuntime()
+	workerResults := make(chan runtimeWorkerResult, 2)
 
-	group.Go(func() error {
+	go func() {
 		runtimeLogger.Info("starting indexer run loop")
 
 		// Each retry creates a fresh notification connection and Indexer instance.
@@ -198,43 +216,87 @@ func runRuntime(
 			ProbeTimeout: postgresProbeTimeout,
 			RetryDelay:   notificationReconnectDelay,
 		}, runtimeLogger)
-		if err != nil {
-			return err
-		}
+		workerResults <- runtimeWorkerResult{name: "indexer", err: err}
+	}()
 
-		runtimeLogger.Info("indexer run loop stopped")
-		return nil
-	})
-
-	group.Go(func() error {
+	go func() {
 		runtimeLogger.Info("gRPC server listening", "address", cfg.GRPCListenAddress)
 
 		err := grpcServer.Serve(grpcListener)
-		if err != nil {
+		if err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			runtimeLogger.Error("gRPC server stopped with error", "err", err)
-			return err
 		}
+		workerResults <- runtimeWorkerResult{name: "gRPC", err: err}
+	}()
 
-		runtimeLogger.Info("gRPC server stopped")
-		return nil
-	})
+	completedWorkers := 0
+	select {
+	case <-ctx.Done():
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			retErr = ctx.Err()
+		}
+	case result := <-workerResults:
+		completedWorkers++
+		retErr = unexpectedWorkerExit(result)
+	}
 
-	group.Go(func() error {
-		<-runCtx.Done()
-		// Publish unavailability before waiting for in-flight RPCs to finish.
-		runtimeLogger.Info("shutdown requested, updating gRPC health status")
-		readiness.Stopping()
-		healthServer.Shutdown()
-		// Let in-flight RPCs finish before the server stops.
-		runtimeLogger.Info("shutdown requested, stopping gRPC server")
-		grpcServer.GracefulStop()
-		return nil
-	})
+	runtimeLogger.Info("shutdown requested, updating gRPC health status")
+	readiness.Stopping()
+	healthServer.Shutdown()
+	cancel()
+	cancelRuntime()
 
-	retErr = group.Wait()
-	if errors.Is(retErr, context.Canceled) {
-		retErr = nil
+	if err := control.Close(); err != nil {
+		retErr = errors.Join(retErr, err)
+	}
+	<-control.Done()
+
+	runtimeLogger.Info("shutdown requested, stopping gRPC server")
+	if stopGRPCServer(grpcServer, grpcShutdownTimeout) {
+		runtimeLogger.Warn("gRPC graceful shutdown timed out", "timeout", grpcShutdownTimeout)
+	}
+
+	for completedWorkers < 2 {
+		result := <-workerResults
+		completedWorkers++
+		if err := shutdownWorkerError(result); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
 	}
 
 	return
+}
+
+func unexpectedWorkerExit(result runtimeWorkerResult) error {
+	if result.err == nil {
+		return fmt.Errorf("%s worker stopped unexpectedly", result.name)
+	}
+	return result.err
+}
+
+func shutdownWorkerError(result runtimeWorkerResult) error {
+	if result.err == nil || errors.Is(result.err, context.Canceled) || errors.Is(result.err, grpc.ErrServerStopped) {
+		return nil
+	}
+	return fmt.Errorf("%s worker stopped: %w", result.name, result.err)
+}
+
+// stopGRPCServer gives in-flight RPCs a bounded grace period before forcing stop.
+func stopGRPCServer(server grpcStopper, timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		server.GracefulStop()
+		close(done)
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return false
+	case <-timer.C:
+		server.Stop()
+		<-done
+		return true
+	}
 }

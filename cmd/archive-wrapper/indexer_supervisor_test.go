@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/node101-io/archive-wrapper/diagnostics"
 	"github.com/node101-io/archive-wrapper/indexer"
@@ -206,6 +207,16 @@ func TestRunIndexerSessionBoundsNotificationConnectWithTimeout(t *testing.T) {
 	require.GreaterOrEqual(t, time.Since(startedAt), connectTimeout)
 }
 
+func TestCloseNotificationConnUsesFreshShutdownContext(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	conn := &closeContextConn{contextErrors: make(chan error, 1)}
+
+	closeNotificationConn(ctx, conn, logger)
+	require.NoError(t, <-conn.contextErrors)
+}
+
 type pingerFunc func(context.Context) error
 
 func (f pingerFunc) Ping(ctx context.Context) error {
@@ -217,3 +228,20 @@ type noopObserver struct{}
 func (noopObserver) OnSyncStarted()                       {}
 func (noopObserver) OnSyncProgress(indexer.SyncProgress)  {}
 func (noopObserver) OnSyncCompleted(indexer.SyncProgress) {}
+
+type closeContextConn struct {
+	contextErrors chan error
+}
+
+func (conn *closeContextConn) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	panic("unexpected Exec call")
+}
+
+func (conn *closeContextConn) WaitForNotification(context.Context) (*pgconn.Notification, error) {
+	panic("unexpected WaitForNotification call")
+}
+
+func (conn *closeContextConn) Close(ctx context.Context) error {
+	conn.contextErrors <- ctx.Err()
+	return nil
+}

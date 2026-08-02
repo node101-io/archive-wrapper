@@ -144,7 +144,7 @@ func connectPostgresNotification(ctx context.Context, postgresURI string) (postg
 
 // closeNotificationConn bounds shutdown so a broken connection cannot block exit.
 func closeNotificationConn(ctx context.Context, conn postgresNotificationConn, logger *slog.Logger) {
-	closeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
 
 	if err := conn.Close(closeCtx); err != nil {
