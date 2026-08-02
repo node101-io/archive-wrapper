@@ -2,7 +2,6 @@ package indexer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -28,11 +27,6 @@ type Indexer struct {
 	confirmationDepth int64
 	startBlockHeight  int64
 	observer          SyncObserver
-}
-
-// BlockNotification is the NOTIFY payload emitted for new Mina tip heights.
-type BlockNotification struct {
-	Height int64 `json:"height"`
 }
 
 const (
@@ -221,7 +215,7 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 
 	// 3. Yeni notification'ları takip et.
 	for {
-		notification, err := indexer.conn.WaitForNotification(ctx)
+		_, err := indexer.conn.WaitForNotification(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				indexer.logger.InfoContext(ctx, "indexer shutting down")
@@ -230,29 +224,11 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 			return fmt.Errorf("%w: wait for notification: %w", apperrors.ErrNotificationConnectionLost, err)
 		}
 
-		var msg BlockNotification
-		if err := json.Unmarshal(
-			[]byte(notification.Payload),
-			&msg,
-		); err != nil {
-			return err
-		}
-
-		target := msg.Height - indexer.confirmationDepth
-		indexer.logger.InfoContext(
-			ctx,
-			"received block notification",
-			"height",
-			msg.Height,
-			"target",
-			target,
-		)
-
-		// Eski notification ise no-op.
-		// Arada eksik block varsa tamamını işler.
-		indexer.observer.OnSyncStarted()
-		if err := indexer.syncTo(ctx, msg.Height, target); err != nil {
-			return err
+		// Notifications only signal that archive state may have changed. Query the
+		// authoritative tip so payload ordering and contents cannot drive indexing.
+		indexer.logger.InfoContext(ctx, "archive change notification received")
+		if err := indexer.Sync(ctx); err != nil {
+			return fmt.Errorf("sync after archive notification: %w", err)
 		}
 	}
 }

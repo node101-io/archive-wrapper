@@ -2,8 +2,8 @@ package indexer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -66,20 +66,25 @@ func TestWithRetryReturnsContextErrorWhenCanceled(t *testing.T) {
 	require.True(t, errors.Is(err, context.Canceled))
 }
 
-func TestRunReconcilesMissingHeightsFromNotificationAndSkipsDuplicateOrOutOfOrderNotifications(t *testing.T) {
+func TestRunReconcilesAuthoritativeTipForDuplicateAndOutOfOrderNotificationPayloads(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	conn := &fakeNotificationConn{
 		notifications: []*pgconn.Notification{
-			mustNotification(t, BlockNotification{Height: 102}),
-			mustNotification(t, BlockNotification{Height: 102}),
-			mustNotification(t, BlockNotification{Height: 101}),
+			notification(`{"height":102}`),
+			notification(`{"height":102}`),
+			notification(`{"height":101}`),
 		},
 	}
 
 	querier := &fakeQuerier{
-		conn:         conn,
-		latestHeight: 100,
+		conn: conn,
+		latestHeightResults: []latestHeightResult{
+			{height: 100},
+			{height: 102},
+			{height: 102},
+			{height: 102},
+		},
 		blockIDsByHeight: map[int64]int64{
 			69: 690,
 			70: 700,
@@ -128,13 +133,15 @@ func TestRunReconcilesMissingHeightsFromNotificationAndSkipsDuplicateOrOutOfOrde
 		require.Equal(t, int64(68), cursor)
 	}
 
-	indexer, err := NewIndexer(conn, client, db, 10, 32, logger)
+	observer := &recordingSyncObserver{}
+	indexer, err := NewIndexer(conn, client, db, 10, 32, logger, WithSyncObserver(observer))
 	require.NoError(t, err)
 
 	require.NoError(t, indexer.Run(context.Background()))
 
 	require.Equal(t, []string{"LISTEN blocks_inserted"}, conn.execStatements)
 	require.Equal(t, 3, conn.waitCalls)
+	require.Equal(t, 4, querier.latestHeightCalls)
 	require.Equal(t, []rangeRequest{
 		{startHeight: 69, endHeight: 70, waitCalls: 1},
 	}, querier.primedRanges)
@@ -147,6 +154,54 @@ func TestRunReconcilesMissingHeightsFromNotificationAndSkipsDuplicateOrOutOfOrde
 	cursor, err := db.GetBlockHeight()
 	require.NoError(t, err)
 	require.Equal(t, int64(70), cursor)
+	require.Equal(t, []SyncProgress{
+		{ArchiveHeight: 100, TargetHeight: 68, Initialized: true, IndexedHeight: 68},
+		{ArchiveHeight: 102, TargetHeight: 70, Initialized: true, IndexedHeight: 70},
+		{ArchiveHeight: 102, TargetHeight: 70, Initialized: true, IndexedHeight: 70},
+		{ArchiveHeight: 102, TargetHeight: 70, Initialized: true, IndexedHeight: 70},
+	}, observer.completed)
+}
+
+func TestRunTreatsMalformedNotificationPayloadAsArchiveChangeSignal(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	conn := &fakeNotificationConn{
+		notifications: []*pgconn.Notification{notification("not-json")},
+	}
+	querier := &fakeQuerier{
+		conn: conn,
+		latestHeightResults: []latestHeightResult{
+			{height: 100},
+			{height: 102},
+		},
+		blockIDsByHeight: map[int64]int64{
+			69: 690,
+			70: 700,
+		},
+		rowsByHeight: map[int64][]sqlcdb.ListActionRowsByBlockIDRow{
+			69: {validActionRow(69)},
+			70: {validActionRow(70)},
+		},
+	}
+	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
+	require.NoError(t, err)
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.NoError(t, db.InsertBlockHeight(68))
+	observer := &recordingSyncObserver{}
+
+	idx, err := NewIndexer(conn, client, db, 10, 32, logger, WithSyncObserver(observer))
+	require.NoError(t, err)
+	require.NoError(t, idx.Run(context.Background()))
+
+	require.Equal(t, 2, querier.latestHeightCalls)
+	require.Equal(t, []rangeRequest{{startHeight: 69, endHeight: 70, waitCalls: 1}}, querier.primedRanges)
+	require.Equal(t, SyncProgress{
+		ArchiveHeight: 102,
+		TargetHeight:  70,
+		Initialized:   true,
+		IndexedHeight: 70,
+	}, observer.completed[len(observer.completed)-1])
 }
 
 func TestSyncToAfterCursorlessRestartDoesNotStoreEmptyBlock(t *testing.T) {
@@ -300,6 +355,38 @@ func TestRunReturnsReconnectableErrorWhenInitialSyncQueryConnectionFails(t *test
 	require.ErrorIs(t, err, apperrors.ErrQueryConnectionLost)
 }
 
+func TestRunReturnsReconnectableErrorWhenNotificationTipQueryFails(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	conn := &fakeNotificationConn{
+		notifications: []*pgconn.Notification{notification(`{"height":102}`)},
+	}
+	querier := &fakeQuerier{
+		conn: conn,
+		latestHeightResults: []latestHeightResult{
+			{height: 100},
+			{err: context.DeadlineExceeded},
+		},
+	}
+	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
+	require.NoError(t, err)
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.NoError(t, db.InsertBlockHeight(68))
+	observer := &recordingSyncObserver{}
+
+	idx, err := NewIndexer(conn, client, db, 10, 32, logger, WithSyncObserver(observer))
+	require.NoError(t, err)
+	err = idx.Run(context.Background())
+
+	require.ErrorIs(t, err, apperrors.ErrQueryConnectionLost)
+	require.Equal(t, 2, querier.latestHeightCalls)
+	require.Equal(t, []string{"started", "progress", "completed", "started"}, observer.events)
+	cursor, cursorErr := db.GetBlockHeight()
+	require.NoError(t, cursorErr)
+	require.Equal(t, int64(68), cursor)
+}
+
 func TestRunDoesNotReportSyncWhenListenFails(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	conn := &fakeNotificationConn{execErr: errors.New("connection lost")}
@@ -341,11 +428,14 @@ func TestRunDoesNotCompleteFailedInitialSync(t *testing.T) {
 func TestRunReportsWaitingThenInitializedAfterNotification(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	conn := &fakeNotificationConn{
-		notifications: []*pgconn.Notification{mustNotification(t, BlockNotification{Height: 42})},
+		notifications: []*pgconn.Notification{notification(`{"height":42}`)},
 	}
 	querier := &fakeQuerier{
-		conn:             conn,
-		latestHeight:     40,
+		conn: conn,
+		latestHeightResults: []latestHeightResult{
+			{height: 40},
+			{height: 42},
+		},
 		blockIDsByHeight: map[int64]int64{10: 100},
 		rowsByHeight:     map[int64][]sqlcdb.ListActionRowsByBlockIDRow{10: {}},
 	}
@@ -442,6 +532,8 @@ type fakeQuerier struct {
 	conn                   *fakeNotificationConn
 	latestHeight           int64
 	latestHeightErr        error
+	latestHeightResults    []latestHeightResult
+	latestHeightCalls      int
 	blockIDsByHeight       map[int64]int64
 	primedRanges           []rangeRequest
 	requestedActionHeights []heightRequest
@@ -453,6 +545,16 @@ func (q *fakeQuerier) GetLatestBlockHeight(context.Context) (int64, error) {
 	if !q.conn.listenReady {
 		return 0, errors.New("LISTEN must be registered before initial sync")
 	}
+	if len(q.latestHeightResults) > 0 {
+		if q.latestHeightCalls >= len(q.latestHeightResults) {
+			return 0, fmt.Errorf("unexpected latest height query %d", q.latestHeightCalls+1)
+		}
+		result := q.latestHeightResults[q.latestHeightCalls]
+		q.latestHeightCalls++
+		return result.height, result.err
+	}
+
+	q.latestHeightCalls++
 	if q.latestHeightErr != nil {
 		return 0, q.latestHeightErr
 	}
@@ -513,13 +615,13 @@ func (q *fakeQuerier) ListActionRowsByBlockID(_ context.Context, arg sqlcdb.List
 	return q.rowsByHeight[height], nil
 }
 
-func mustNotification(t *testing.T, msg BlockNotification) *pgconn.Notification {
-	t.Helper()
+type latestHeightResult struct {
+	height int64
+	err    error
+}
 
-	payload, err := json.Marshal(msg)
-	require.NoError(t, err)
-
-	return &pgconn.Notification{Payload: string(payload)}
+func notification(payload string) *pgconn.Notification {
+	return &pgconn.Notification{Payload: payload}
 }
 
 func validActionRow(height int64) sqlcdb.ListActionRowsByBlockIDRow {

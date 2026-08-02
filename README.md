@@ -87,8 +87,11 @@ make start CONFIG=/path/to/config.yaml
 `bridge.start_block_height`, and `bridge.max_block_range` from
 `/path/to/validator/config/genesis.json`, catches up to the archive tip minus
 that depth, and then follows the PostgreSQL `blocks_inserted` notifications.
-Query and notification connection failures are retried while the process is
-running.
+Notifications are wake-up signals only: after each notification, the wrapper
+queries the authoritative archive tip and reconciles from its persisted LevelDB
+cursor. Payload contents, duplicate notifications, and coalesced notifications
+do not determine the indexed range. Query and notification connection failures
+are retried while the process is running.
 
 To resume an existing LevelDB, use:
 
