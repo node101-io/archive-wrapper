@@ -163,13 +163,46 @@ Blocks with no supported actions are still recorded by advancing the cursor.
 The gRPC endpoint has no public authentication or authorization layer, so it
 must stay bound to a trusted local interface.
 
+### Health and diagnostics
+
+The standard gRPC health service reports whether the query API is ready for
+use. Both the overall server (`""`) and `query.Query` remain `NOT_SERVING`
+during initial PostgreSQL connection, initial catch-up, finality waiting, and
+PostgreSQL reconnection. They become `SERVING` only after a successful sync has
+created or recovered the local indexed-height cursor. A successful PostgreSQL
+Ping proves connectivity but does not make the query API ready.
+
+The read-only `diagnostics.DiagnosticsService` remains available while the
+query API is starting or reconnecting. It reports the operational state,
+archive and target heights, indexed height, confirmed lag, and timestamps for
+the latest successful sync and operational error. Supported states are
+`STARTING`, `CONNECTING`, `SYNCING`, `WAITING_FOR_FINALITY`, `READY`,
+`RECONNECTING`, `FAILED`, and `STOPPING`.
+
+For example, with the default listen address:
+
+```sh
+grpcurl -plaintext \
+  -d '{"service":"query.Query"}' \
+  127.0.0.1:9095 grpc.health.v1.Health/Check
+
+grpcurl -plaintext \
+  -d '{}' \
+  127.0.0.1:9095 diagnostics.DiagnosticsService/GetStatus
+```
+
+Health status is advisory and does not reject query RPCs server-side. Clients
+that require readiness gating must check or enable gRPC health checking.
+
 ## Development checks
 
 ```sh
 make fmt
 make lint
+make proto
 buf lint
 ```
 
-`make lint` runs `golangci-lint` with the `purego` build tag, while `buf lint`
-checks the protobuf sources.
+`make lint` runs `golangci-lint` with the `purego` build tag, `make proto`
+regenerates checked-in protobuf Go code, and `buf lint` checks the protobuf
+sources.

@@ -189,7 +189,7 @@ func TestSyncToAfterCursorlessRestartDoesNotStoreEmptyBlock(t *testing.T) {
 
 	indexer, err := NewIndexer(conn, client, db, 10, 32, logger)
 	require.NoError(t, err)
-	require.NoError(t, indexer.syncTo(context.Background(), 10))
+	require.NoError(t, indexer.syncTo(context.Background(), 42, 10))
 
 	hasRecord, err := db.Has(10)
 	require.NoError(t, err)
@@ -300,8 +300,80 @@ func TestRunReturnsReconnectableErrorWhenInitialSyncQueryConnectionFails(t *test
 	require.ErrorIs(t, err, apperrors.ErrQueryConnectionLost)
 }
 
+func TestRunDoesNotReportSyncWhenListenFails(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	conn := &fakeNotificationConn{execErr: errors.New("connection lost")}
+	querier := &fakeQuerier{conn: conn}
+	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
+	require.NoError(t, err)
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+	observer := &recordingSyncObserver{}
+
+	idx, err := NewIndexer(conn, client, db, 10, 32, logger, WithSyncObserver(observer))
+	require.NoError(t, err)
+	err = idx.Run(context.Background())
+
+	require.ErrorIs(t, err, apperrors.ErrNotificationConnectionLost)
+	require.Empty(t, observer.events)
+}
+
+func TestRunDoesNotCompleteFailedInitialSync(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	conn := &fakeNotificationConn{}
+	querier := &fakeQuerier{conn: conn, latestHeightErr: context.DeadlineExceeded}
+	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
+	require.NoError(t, err)
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+	observer := &recordingSyncObserver{}
+
+	idx, err := NewIndexer(conn, client, db, 10, 32, logger, WithSyncObserver(observer))
+	require.NoError(t, err)
+	err = idx.Run(context.Background())
+
+	require.ErrorIs(t, err, apperrors.ErrQueryConnectionLost)
+	require.Equal(t, []string{"started"}, observer.events)
+}
+
+func TestRunReportsWaitingThenInitializedAfterNotification(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	conn := &fakeNotificationConn{
+		notifications: []*pgconn.Notification{mustNotification(t, BlockNotification{Height: 42})},
+	}
+	querier := &fakeQuerier{
+		conn:             conn,
+		latestHeight:     40,
+		blockIDsByHeight: map[int64]int64{10: 100},
+		rowsByHeight:     map[int64][]sqlcdb.ListActionRowsByBlockIDRow{10: {}},
+	}
+	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
+	require.NoError(t, err)
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+	observer := &recordingSyncObserver{}
+
+	idx, err := NewIndexer(conn, client, db, 10, 32, logger, WithSyncObserver(observer))
+	require.NoError(t, err)
+	require.NoError(t, idx.Run(context.Background()))
+
+	require.Equal(t, []string{"started", "progress", "completed", "started", "progress", "progress", "completed"}, observer.events)
+	require.Len(t, observer.completed, 2)
+	require.Equal(t, SyncProgress{ArchiveHeight: 40, TargetHeight: 8}, observer.completed[0])
+	require.Equal(t, SyncProgress{
+		ArchiveHeight: 42,
+		TargetHeight:  10,
+		Initialized:   true,
+		IndexedHeight: 10,
+	}, observer.completed[1])
+}
+
 type fakeNotificationConn struct {
 	execStatements []string
+	execErr        error
 	notifications  []*pgconn.Notification
 	waitCalls      int
 	listenReady    bool
@@ -310,11 +382,34 @@ type fakeNotificationConn struct {
 
 func (c *fakeNotificationConn) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
 	c.execStatements = append(c.execStatements, sql)
+	if c.execErr != nil {
+		return pgconn.CommandTag{}, c.execErr
+	}
 	if sql == "LISTEN blocks_inserted" {
 		c.listenReady = true
 	}
 
 	return pgconn.CommandTag{}, nil
+}
+
+type recordingSyncObserver struct {
+	events    []string
+	progress  []SyncProgress
+	completed []SyncProgress
+}
+
+func (o *recordingSyncObserver) OnSyncStarted() {
+	o.events = append(o.events, "started")
+}
+
+func (o *recordingSyncObserver) OnSyncProgress(progress SyncProgress) {
+	o.events = append(o.events, "progress")
+	o.progress = append(o.progress, progress)
+}
+
+func (o *recordingSyncObserver) OnSyncCompleted(progress SyncProgress) {
+	o.events = append(o.events, "completed")
+	o.completed = append(o.completed, progress)
 }
 
 func (c *fakeNotificationConn) WaitForNotification(_ context.Context) (*pgconn.Notification, error) {

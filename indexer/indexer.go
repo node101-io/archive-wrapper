@@ -27,6 +27,7 @@ type Indexer struct {
 	db                *database.DbManager
 	confirmationDepth int64
 	startBlockHeight  int64
+	observer          SyncObserver
 }
 
 // BlockNotification is the NOTIFY payload emitted for new Mina tip heights.
@@ -47,6 +48,7 @@ func NewIndexer(
 	startBlockHeight int64,
 	confirmationDepth int64,
 	logger *slog.Logger,
+	options ...Option,
 ) (*Indexer, error) {
 	if logger == nil {
 		return nil, apperrors.ErrNilLogger
@@ -81,14 +83,22 @@ func NewIndexer(
 		confirmationDepth,
 	)
 
-	return &Indexer{
+	result := &Indexer{
 		logger:            logger,
 		client:            client,
 		conn:              conn,
 		db:                db,
 		confirmationDepth: confirmationDepth,
 		startBlockHeight:  startBlockHeight,
-	}, nil
+		observer:          noopSyncObserver{},
+	}
+	for _, option := range options {
+		if option != nil {
+			option(result)
+		}
+	}
+
+	return result, nil
 }
 
 // Sync catches the local cursor up to the current confirmed Mina tip.
@@ -99,6 +109,7 @@ func (indexer *Indexer) Sync(ctx context.Context) error {
 	if indexer.logger == nil {
 		return apperrors.ErrNilLogger
 	}
+	indexer.observer.OnSyncStarted()
 
 	minaBlockHeight, err := indexer.client.GetMinaBlockHeight(ctx)
 	if err != nil {
@@ -119,12 +130,14 @@ func (indexer *Indexer) Sync(ctx context.Context) error {
 
 	return indexer.syncTo(
 		ctx,
+		minaBlockHeight,
 		target,
 	)
 }
 
 func (indexer *Indexer) syncTo(
 	ctx context.Context,
+	archiveHeight int64,
 	target int64,
 ) error {
 	// Start one block behind so the first loop begins at startBlockHeight.
@@ -142,8 +155,19 @@ func (indexer *Indexer) syncTo(
 		}
 	}
 
+	progress := SyncProgress{
+		ArchiveHeight: archiveHeight,
+		TargetHeight:  target,
+		Initialized:   exists,
+	}
+	if exists {
+		progress.IndexedHeight = cursor
+	}
+	indexer.observer.OnSyncProgress(progress)
+
 	if target <= cursor {
 		indexer.logger.InfoContext(ctx, "sync already up to date", "cursor", cursor, "target", target)
+		indexer.observer.OnSyncCompleted(progress)
 		return nil
 	}
 
@@ -161,9 +185,14 @@ func (indexer *Indexer) syncTo(
 		}); err != nil {
 			return fmt.Errorf("index block %d: %w", height, err)
 		}
+
+		progress.Initialized = true
+		progress.IndexedHeight = height
+		indexer.observer.OnSyncProgress(progress)
 	}
 
 	indexer.logger.InfoContext(ctx, "sync completed", "cursor", target)
+	indexer.observer.OnSyncCompleted(progress)
 
 	return nil
 }
@@ -221,7 +250,8 @@ func (indexer *Indexer) Run(ctx context.Context) error {
 
 		// Eski notification ise no-op.
 		// Arada eksik block varsa tamamını işler.
-		if err := indexer.syncTo(ctx, target); err != nil {
+		indexer.observer.OnSyncStarted()
+		if err := indexer.syncTo(ctx, msg.Height, target); err != nil {
 			return err
 		}
 	}
