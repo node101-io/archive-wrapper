@@ -40,5 +40,35 @@ services:
     tmpfs:
       - /run/archive-wrapper:uid=65532,gid=65532,mode=0700
 
+  wrapper2:
+    profiles: ["isolation"]
+    image: ${ARCHIVE_WRAPPER_IMAGE}
+    read_only: true
+    environment: *wrapper-environment
+    volumes:
+      - ./wrapper.yaml:/etc/archive-wrapper/config.yaml:ro
+      - ./chain-home:/var/lib/pulsar:ro
+      - wrapper2_data:/var/lib/archive-wrapper
+    tmpfs:
+      - /run/archive-wrapper:uid=65532,gid=65532,mode=0700
+    ports:
+      - "9095"
+
+  wrapper3:
+    profiles: ["isolation"]
+    image: ${ARCHIVE_WRAPPER_IMAGE}
+    read_only: true
+    environment: *wrapper-environment
+    volumes:
+      - ./wrapper.yaml:/etc/archive-wrapper/config.yaml:ro
+      - ./chain-home:/var/lib/pulsar:ro
+      - wrapper3_data:/var/lib/archive-wrapper
+    tmpfs:
+      - /run/archive-wrapper:uid=65532,gid=65532,mode=0700
+    ports:
+      - "9095"
+
 volumes:
   wrapper1_data:
+  wrapper2_data:
+  wrapper3_data:

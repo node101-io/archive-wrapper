@@ -20,7 +20,7 @@ cleanup() {
   if [[ -n $inspect_container_id ]]; then
     docker rm --force "$inspect_container_id" >/dev/null 2>&1 || true
   fi
-  "${compose[@]}" --profile lock down --volumes --remove-orphans >/dev/null 2>&1 || true
+  "${compose[@]}" --profile lock --profile isolation down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$tmp_dir"
   exit "$status"
 }
@@ -167,4 +167,29 @@ docker run --rm --volume "$data_volume:/data:ro" \
   postgres:17-bookworm@sha256:4f736ae292687621d4dbe0d499ffd024a36bd2ee7d8ca6f2ccd4c800f047b394 \
   -c 'test "$(stat -c %u:%g /data/data)" = 65532:65532 && test ! -e /data/archive-wrapper.log'
 
-echo "container lifecycle and shared-client smoke tests passed"
+# Independent wrapper state must remain isolated even when PostgreSQL is shared.
+"${compose[@]}" --profile isolation up --detach --no-deps wrapper2 wrapper3
+wait_for_healthy wrapper2
+wait_for_healthy wrapper3
+wrapper1_address=$(published_address wrapper1)
+wrapper2_address=$(published_address wrapper2)
+wrapper3_address=$(published_address wrapper3)
+ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper1_address,$wrapper2_address,$wrapper3_address" \
+  GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
+  go test -tags=container ./tests/container -run '^TestWrapperIsolation$' -count=1
+
+"${compose[@]}" stop --timeout 15 wrapper2
+wrapper2_exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$("${compose[@]}" ps --all --quiet wrapper2)")
+[[ $wrapper2_exit_code -eq 0 ]]
+ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper1_address,$wrapper3_address" \
+  GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
+  go test -tags=container ./tests/container -run '^TestWrapperIsolation$' -count=1
+
+"${compose[@]}" start wrapper2
+wait_for_healthy wrapper2
+wrapper2_address=$(published_address wrapper2)
+ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper1_address,$wrapper2_address,$wrapper3_address" \
+  GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
+  go test -tags=container ./tests/container -run '^TestWrapperIsolation$' -count=1
+
+echo "container lifecycle, shared-client, and wrapper-isolation smoke tests passed"
