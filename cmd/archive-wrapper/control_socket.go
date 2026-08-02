@@ -16,8 +16,10 @@ import (
 	"github.com/node101-io/archive-wrapper/config"
 )
 
+// The control channel is local-only and never exposed over TCP.
 const network = "unix"
 
+// The protocol is deliberately small so start, stop, and liveness checks agree.
 const (
 	controlSocketReadTimeout  = time.Second
 	controlSocketPingCommand  = "PING\n"
@@ -25,6 +27,7 @@ const (
 	controlSocketStopCommand  = "STOP\n"
 )
 
+// closeControlSocketListener leaves filesystem cleanup to the listener implementation.
 func closeControlSocketListener(ln net.Listener) error {
 	if err := ln.Close(); err != nil {
 		return fmt.Errorf("close control socket listener: %w", err)
@@ -32,6 +35,7 @@ func closeControlSocketListener(ln net.Listener) error {
 	return nil
 }
 
+// runStop sends a single shutdown command to the running wrapper process.
 func runStop(sockPath string, logger *slog.Logger) (retErr error) {
 	cliLogger := logger.With("component", "cli")
 
@@ -56,6 +60,7 @@ func runStop(sockPath string, logger *slog.Logger) (retErr error) {
 	return
 }
 
+// resolveStopSocketPath applies the explicit flag, config, then environment precedence.
 func resolveStopSocketPath(socketPath, configPath, envSocketPath string) (string, error) {
 	socketPath = strings.TrimSpace(socketPath)
 	if socketPath != "" {
@@ -81,6 +86,7 @@ func resolveStopSocketPath(socketPath, configPath, envSocketPath string) (string
 	)
 }
 
+// listenControlSocket accepts local commands until the listener closes or STOP arrives.
 func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slog.Logger) (net.Listener, error) {
 	controlLogger := logger.With("component", "control_socket")
 
@@ -117,6 +123,7 @@ func listenControlSocket(sockPath string, cancel context.CancelFunc, logger *slo
 	return ln, nil
 }
 
+// prepareControlSocket rejects live owners and removes only demonstrably stale sockets.
 func prepareControlSocket(sockPath string, logger *slog.Logger) error {
 	controlLogger := logger.With("component", "control_socket")
 
@@ -155,6 +162,7 @@ func prepareControlSocket(sockPath string, logger *slog.Logger) error {
 	return fmt.Errorf("probe control socket %s: %w", sockPath, err)
 }
 
+// handleControlSocketConn processes one bounded PING or STOP request.
 func handleControlSocketConn(c net.Conn, sockPath string, logger *slog.Logger) bool {
 	defer func() {
 		if err := c.Close(); err != nil {
@@ -196,6 +204,7 @@ func handleControlSocketConn(c net.Conn, sockPath string, logger *slog.Logger) b
 	}
 }
 
+// probeLiveControlSocket confirms that an existing socket belongs to a live wrapper.
 func probeLiveControlSocket(c net.Conn) (retErr error) {
 	defer func() {
 		if err := c.Close(); err != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
+// run validates command-specific inputs before handing control to the runtime.
 func run(args []string, ctx context.Context,
 	cancel context.CancelFunc, logger *slog.Logger) error {
 	cliLogger := logger.With("component", "cli")
@@ -60,6 +61,7 @@ func run(args []string, ctx context.Context,
 		if err != nil {
 			return err
 		}
+		// A fresh start must not silently reuse a persisted cursor.
 		if err := ensureDBPathDoesNotExist(cfg.DBPath); err != nil {
 			return err
 		}
@@ -101,6 +103,7 @@ func run(args []string, ctx context.Context,
 		if err != nil {
 			return err
 		}
+		// Proceed is valid only after start has initialized the local database.
 		if _, err := os.Stat(cfg.DBPath); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("db does not exist: %s; run start first", cfg.DBPath)

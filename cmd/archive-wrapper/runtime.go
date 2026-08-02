@@ -24,9 +24,11 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
+// Service names must match the generated descriptors used by gRPC health clients.
 const queryGRPCServiceName = "query.Query"
 const diagnosticsGRPCServiceName = "diagnostics.DiagnosticsService"
 
+// registerGRPCServices exposes query, diagnostics, health, and reflection on one server.
 func registerGRPCServices(
 	grpcServer *grpc.Server,
 	queryService query.QueryServer,
@@ -38,6 +40,7 @@ func registerGRPCServices(
 	healthServer := grpcHealth.NewServer()
 	grpcHealthV1.RegisterHealthServer(grpcServer, healthServer)
 	reflection.Register(grpcServer)
+	// Query traffic stays unavailable until the initial reconciliation succeeds.
 	healthServer.SetServingStatus("", grpcHealthV1.HealthCheckResponse_NOT_SERVING)
 	healthServer.SetServingStatus(queryGRPCServiceName, grpcHealthV1.HealthCheckResponse_NOT_SERVING)
 	healthServer.SetServingStatus(diagnosticsGRPCServiceName, grpcHealthV1.HealthCheckResponse_SERVING)
@@ -45,6 +48,7 @@ func registerGRPCServices(
 	return healthServer
 }
 
+// runStart builds the long-lived runtime and coordinates all component lifecycles.
 func runStart(ctx context.Context, cfg config.Config,
 	bridgeParams bridgeParams, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
 	if err := cfg.Validate(); err != nil {
@@ -86,6 +90,7 @@ func runStart(ctx context.Context, cfg config.Config,
 		}
 	}()
 
+	// Reject a mismatched deployment before opening external network connections.
 	if err := db.EnsureDeploymentMetadata(cfg.DeploymentMetadataKey, cfg.DeploymentMetadata); err != nil {
 		return err
 	}
@@ -146,11 +151,13 @@ func runStart(ctx context.Context, cfg config.Config,
 	healthServer := registerGRPCServices(grpcServer, queryService, diagnosticsService)
 	readiness := newReadinessController(healthServer, diagnosticsStore)
 
+	// A failure in any worker cancels the shared runtime context.
 	group, runCtx := errgroup.WithContext(ctx)
 
 	group.Go(func() error {
 		runtimeLogger.Info("starting indexer run loop")
 
+		// Each retry creates a fresh notification connection and Indexer instance.
 		session := func(sessionCtx context.Context) error {
 			return runIndexerSession(
 				sessionCtx,
@@ -194,6 +201,7 @@ func runStart(ctx context.Context, cfg config.Config,
 
 	group.Go(func() error {
 		<-runCtx.Done()
+		// Publish unavailability before waiting for in-flight RPCs to finish.
 		runtimeLogger.Info("shutdown requested, updating gRPC health status")
 		readiness.Stopping()
 		healthServer.Shutdown()
