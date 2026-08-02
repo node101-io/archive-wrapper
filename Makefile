@@ -4,6 +4,14 @@ GO_BUILD_TAGS := purego
 
 export GOCACHE := $(CURDIR)/.cache/go-build
 export GOLANGCI_LINT_CACHE := $(CURDIR)/.cache/golangci-lint
+export POSTGRES_URI
+export ARCHIVE_WRAPPER_CONFIG
+export ARCHIVE_WRAPPER_CHAIN_HOME
+export ARCHIVE_WRAPPER_GRPC_LISTEN_ADDRESS
+export ARCHIVE_WRAPPER_GRPC_TRANSPORT_MODE
+export ARCHIVE_WRAPPER_DB_PATH
+export ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH
+export ARCHIVE_WRAPPER_LOG_PATH
 CONFIG ?= config.yaml
 
 .PHONY: ensure-cache proto fmt test lint build run stop
