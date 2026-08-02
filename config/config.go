@@ -38,7 +38,7 @@ type Config struct {
 	GRPCListenAddress string `mapstructure:"grpc_listen_address"`
 	// GRPCTransportMode selects the bind policy for the plaintext gRPC server.
 	GRPCTransportMode TransportMode `mapstructure:"grpc_transport_mode"`
-	// ControlSocketPath is the unix socket path used by start and stop commands.
+	// ControlSocketPath is the unix socket path used by run and stop commands.
 	ControlSocketPath string `mapstructure:"control_socket_path"`
 	// DeploymentMetadataKey stores deployment identity in LevelDB.
 	DeploymentMetadataKey string `mapstructure:"deployment_metadata_key"`
