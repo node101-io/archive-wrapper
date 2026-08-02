@@ -129,7 +129,7 @@ func checkQueryHealth(ctx context.Context, address string) error {
 	if err != nil {
 		return errors.New("query health connection failed")
 	}
-	defer connection.Close()
+	defer func() { _ = connection.Close() }()
 
 	response, err := grpcHealthV1.NewHealthClient(connection).Check(
 		ctx,

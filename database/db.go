@@ -288,35 +288,6 @@ func (manager *DbManager) GetBlockHeight() (int64, error) {
 	return height, nil
 }
 
-func (manager *DbManager) getEarliestStoredRecordHeight() (int64, bool, error) {
-	iter := manager.db.NewIterator(nil, nil)
-	defer iter.Release()
-
-	cursorKey := []byte(manager.blockHeightDatabaseKey)
-
-	for iter.Next() {
-		key := iter.Key()
-		if len(key) != 8 {
-			continue
-		}
-		if string(key) == string(cursorKey) {
-			continue
-		}
-
-		height, err := decodeBlockHeight(key)
-		if err != nil {
-			return 0, false, err
-		}
-		return height, true, nil
-	}
-
-	if err := iter.Error(); err != nil {
-		return 0, false, fmt.Errorf("iterate stored block records: %w", err)
-	}
-
-	return 0, false, nil
-}
-
 // Close closes the underlying LevelDB handle and marks the manager unusable.
 func (manager *DbManager) Close() error {
 
