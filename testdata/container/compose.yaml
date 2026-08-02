@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:17-bookworm@sha256:4f736ae292687621d4dbe0d499ffd024a36bd2ee7d8ca6f2ccd4c800f047b394
+    environment:
+      POSTGRES_DB: archive
+      POSTGRES_USER: archive
+      POSTGRES_PASSWORD: container-secret
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archive -d archive"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    volumes:
+      - ../../fetchmina/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+
+  wrapper1:
+    image: ${ARCHIVE_WRAPPER_IMAGE}
+    read_only: true
+    environment: &wrapper-environment
+      POSTGRES_URI: postgres://archive:container-secret@postgres:5432/archive?sslmode=disable
+    volumes:
+      - ./wrapper.yaml:/etc/archive-wrapper/config.yaml:ro
+      - ./chain-home:/var/lib/pulsar:ro
+      - wrapper1_data:/var/lib/archive-wrapper
+    tmpfs:
+      - /run/archive-wrapper:uid=65532,gid=65532,mode=0700
+    ports:
+      - "9095"
+
+  wrapper-lock:
+    profiles: ["lock"]
+    image: ${ARCHIVE_WRAPPER_IMAGE}
+    read_only: true
+    environment: *wrapper-environment
+    volumes:
+      - ./wrapper.yaml:/etc/archive-wrapper/config.yaml:ro
+      - ./chain-home:/var/lib/pulsar:ro
+      - wrapper1_data:/var/lib/archive-wrapper
+    tmpfs:
+      - /run/archive-wrapper:uid=65532,gid=65532,mode=0700
+
+volumes:
+  wrapper1_data:

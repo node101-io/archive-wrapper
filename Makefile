@@ -31,7 +31,7 @@ export ARCHIVE_WRAPPER_LOG_PATH
 export ARCHIVE_WRAPPER_HEALTHCHECK_ADDRESS
 CONFIG ?= config.yaml
 
-.PHONY: ensure-cache ensure-docker-builder proto fmt test lint build run stop docker-build docker-build-multiarch docker-inspect
+.PHONY: ensure-cache ensure-docker-builder proto fmt test lint build run stop docker-build docker-build-multiarch docker-inspect docker-test reproducible-build
 
 ensure-cache:
 	mkdir -p "$(GOCACHE)" "$(GOLANGCI_LINT_CACHE)"
@@ -70,6 +70,13 @@ docker-build-multiarch: ensure-cache ensure-docker-builder
 docker-inspect: docker-build
 	docker image inspect $(IMAGE) --format '{{json .Config}}'
 	@docker run --rm --entrypoint /usr/local/bin/archive-wrapper $(IMAGE) version
+
+docker-test:
+	ARCHIVE_WRAPPER_IMAGE=$(IMAGE) ./scripts/test-container.sh
+
+reproducible-build:
+	VERSION=$(VERSION) COMMIT_SHA=$(COMMIT_SHA) SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
+		BUILD_DATE=$(BUILD_DATE) ./scripts/check-reproducible-build.sh
 
 run: build
 	@test -n "$(CONFIG)" || (echo "CONFIG is required" && exit 1)
