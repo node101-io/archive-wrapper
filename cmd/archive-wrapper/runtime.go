@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"os"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,6 +22,12 @@ import (
 	grpcHealthV1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 )
+
+type runtimeInputs struct {
+	Config       config.Config
+	BridgeParams bridgeParams
+	PostgresURI  string
+}
 
 // Service names must match the generated descriptors used by gRPC health clients.
 const queryGRPCServiceName = "query.Query"
@@ -48,11 +53,21 @@ func registerGRPCServices(
 	return healthServer
 }
 
-// runStart builds the long-lived runtime and coordinates all component lifecycles.
-func runStart(ctx context.Context, cfg config.Config,
-	bridgeParams bridgeParams, cancel context.CancelFunc, logger *slog.Logger) (retErr error) {
+// runRuntime builds the long-lived runtime and coordinates all component lifecycles.
+func runRuntime(
+	ctx context.Context,
+	inputs runtimeInputs,
+	cancel context.CancelFunc,
+	logger *slog.Logger,
+) (retErr error) {
+	cfg := inputs.Config
+	bridgeParams := inputs.BridgeParams
 	if err := cfg.Validate(); err != nil {
 		return err
+	}
+	postgresURI := strings.TrimSpace(inputs.PostgresURI)
+	if postgresURI == "" {
+		return apperrors.ErrPostgresURIRequired
 	}
 
 	runtimeLogger := logger.With("component", "runtime")
@@ -113,11 +128,6 @@ func runStart(ctx context.Context, cfg config.Config,
 	defer func() {
 		retErr = errors.Join(retErr, closeControlSocketListener(ln))
 	}()
-
-	postgresURI := strings.TrimSpace(os.Getenv("POSTGRES_URI"))
-	if postgresURI == "" {
-		return apperrors.ErrPostgresURIRequired
-	}
 
 	runtimeLogger.Info("connecting to postgres")
 

@@ -2,16 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/node101-io/archive-wrapper/apperrors"
-	"github.com/node101-io/archive-wrapper/database"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 // BridgeParams holds the x/bridge module params the wrapper consumes at startup.
@@ -83,52 +79,4 @@ func loadBridgeParamsFromHome(homePath string) (bridgeParams, error) {
 		StartBlockHeight:  genesis.AppState.Bridge.Params.StartBlockHeight,
 		MaxBlockRange:     genesis.AppState.Bridge.Params.MaxBlockRange,
 	}, nil
-}
-
-// LoadLatestProcessedBlockHeight reads the persisted latest processed height cursor from LevelDB.
-func loadLatestProcessedBlockHeight(
-	dbPath string,
-	blockHeightDatabaseKey string,
-	logger *slog.Logger,
-) (height int64, retErr error) {
-	if logger == nil {
-		return 0, apperrors.ErrNilLogger
-	}
-
-	db, err := database.NewDbManager(dbPath, blockHeightDatabaseKey, logger)
-	if err != nil {
-		return 0, err
-	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("close db: %w", err))
-		}
-	}()
-
-	height, err = db.GetBlockHeight()
-	if errors.Is(err, leveldb.ErrNotFound) {
-		return 0, err
-	}
-	if err != nil {
-		return 0, err
-	}
-
-	return height, nil
-}
-
-func ensureDBPathDoesNotExist(dbPath string) error {
-	dbPath = strings.TrimSpace(dbPath)
-	if dbPath == "" {
-		return apperrors.ErrDBPathRequired
-	}
-
-	_, err := os.Stat(dbPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("stat db path: %w", err)
-	}
-
-	return fmt.Errorf("%w: %s (use 'make proceed' to resume)", apperrors.ErrDBAlreadyExists, dbPath)
 }

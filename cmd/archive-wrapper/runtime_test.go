@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunStartRejectsDeploymentMismatchBeforePostgres(t *testing.T) {
+func TestRunRuntimeRejectsDeploymentMismatchBeforePostgres(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	dbPath := filepath.Join(t.TempDir(), "db")
 
@@ -29,24 +29,25 @@ func TestRunStartRejectsDeploymentMismatchBeforePostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, database.DeploymentStateFresh, state)
 	require.NoError(t, db.Close())
-	t.Setenv("POSTGRES_URI", "")
-
-	err = runStart(
+	err = runRuntime(
 		context.Background(),
-		config.Config{
-			BlockHeightDatabaseKey: "db-key",
-			DBPath:                 dbPath,
-			GRPCListenAddress:      "127.0.0.1:9095",
-			ControlSocketPath:      filepath.Join(t.TempDir(), "control.sock"),
-			DeploymentMetadataKey:  "metadata-key",
-			DeploymentMetadata: database.DeploymentMetadata{
-				SchemaVersion: 1,
-				MinaNetworkID: "testnet",
+		runtimeInputs{
+			Config: config.Config{
+				BlockHeightDatabaseKey: "db-key",
+				DBPath:                 dbPath,
+				GRPCListenAddress:      "127.0.0.1:9095",
+				ControlSocketPath:      filepath.Join(t.TempDir(), "control.sock"),
+				DeploymentMetadataKey:  "metadata-key",
+				DeploymentMetadata: database.DeploymentMetadata{
+					SchemaVersion: 1,
+					MinaNetworkID: "testnet",
+				},
 			},
-		},
-		bridgeParams{
-			ContractAddress:  "contract-b",
-			StartBlockHeight: 10,
+			BridgeParams: bridgeParams{
+				ContractAddress:  "contract-b",
+				StartBlockHeight: 10,
+			},
+			PostgresURI: "postgres://postgres:secret@127.0.0.1/archive",
 		},
 		func() {},
 		logger,
@@ -54,29 +55,30 @@ func TestRunStartRejectsDeploymentMismatchBeforePostgres(t *testing.T) {
 	require.ErrorIs(t, err, apperrors.ErrDeploymentMetadataMismatch)
 }
 
-func TestRunStartRejectsNonLoopbackGRPCAddressBeforeSideEffects(t *testing.T) {
+func TestRunRuntimeRejectsNonLoopbackGRPCAddressBeforeSideEffects(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "db")
 	controlSocketPath := filepath.Join(root, "control.sock")
-	t.Setenv("POSTGRES_URI", "")
-
-	err := runStart(
+	err := runRuntime(
 		context.Background(),
-		config.Config{
-			BlockHeightDatabaseKey: "db-key",
-			DBPath:                 dbPath,
-			GRPCListenAddress:      "0.0.0.0:9095",
-			ControlSocketPath:      controlSocketPath,
-			DeploymentMetadataKey:  "metadata-key",
-			DeploymentMetadata: database.DeploymentMetadata{
-				SchemaVersion: 1,
-				MinaNetworkID: "testnet",
+		runtimeInputs{
+			Config: config.Config{
+				BlockHeightDatabaseKey: "db-key",
+				DBPath:                 dbPath,
+				GRPCListenAddress:      "0.0.0.0:9095",
+				ControlSocketPath:      controlSocketPath,
+				DeploymentMetadataKey:  "metadata-key",
+				DeploymentMetadata: database.DeploymentMetadata{
+					SchemaVersion: 1,
+					MinaNetworkID: "testnet",
+				},
 			},
-		},
-		bridgeParams{
-			ContractAddress:  "contract-a",
-			StartBlockHeight: 10,
+			BridgeParams: bridgeParams{
+				ContractAddress:  "contract-a",
+				StartBlockHeight: 10,
+			},
+			PostgresURI: "postgres://postgres:secret@127.0.0.1/archive",
 		},
 		func() {},
 		logger,
