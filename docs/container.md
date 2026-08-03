@@ -38,6 +38,22 @@ The pinned builder, runtime, and PostgreSQL test-fixture digests must be updated
 through a reviewed dependency bump. Re-run both platform builds, artifact
 reproducibility checks, and `make docker-test` after any digest change.
 
+## Vulnerability scanning
+
+Container CI scans the actual builder stage and final runtime image separately.
+Fixable `HIGH` and `CRITICAL` operating-system package vulnerabilities fail the
+build for either image. Findings without an available upstream patch do not
+block changes that cannot yet consume a fix.
+
+Go dependency findings are analyzed from source with `govulncheck` inside the
+pinned builder environment. The scan targets only the shipped
+`./cmd/archive-wrapper` executable, uses the production `purego` build tag, and
+stores reachable findings as a report-only SARIF artifact. Findings remain
+visible without blocking pull requests; tool installation, configuration, or
+analysis failures still fail CI. Import-only and module-only informational
+entries are excluded from the artifact; reachable findings are never
+suppressed automatically.
+
 ## Runtime mounts
 
 The image contains no wrapper config, Pulsar genesis, PostgreSQL URI, `.env`
