@@ -16,8 +16,10 @@ import (
 	"github.com/node101-io/archive-wrapper/query"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	grpcHealthV1 "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 )
 
 const queryServiceName = "query.Query"
@@ -26,6 +28,32 @@ type wrapperResult struct {
 	height   int64
 	amount   int64
 	feePayer string
+}
+
+func TestUnavailableQueryIsRejected(t *testing.T) {
+	address := testAddresses(t)[0]
+	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer connection.Close()
+
+	require.Eventually(t, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		health, err := grpcHealthV1.NewHealthClient(connection).Check(
+			ctx,
+			&grpcHealthV1.HealthCheckRequest{Service: queryServiceName},
+		)
+		if err != nil || health.Status != grpcHealthV1.HealthCheckResponse_NOT_SERVING {
+			return false
+		}
+
+		_, err = query.NewQueryClient(connection).GetMinaBlockHeight(
+			ctx,
+			&query.QueryGetMinaBlockHeightRequest{},
+		)
+		return status.Code(err) == codes.Unavailable
+	}, 10*time.Second, 100*time.Millisecond)
 }
 
 func TestConcurrentClients(t *testing.T) {

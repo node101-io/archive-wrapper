@@ -214,6 +214,11 @@ PostgreSQL reconnection. They become `SERVING` only after a successful sync has
 created or recovered the local indexed-height cursor. A successful PostgreSQL
 Ping proves connectivity but does not make the query API ready.
 
+If the current archive target is behind the persisted cursor, the wrapper
+enters `WAITING_FOR_ARCHIVE` and remains `NOT_SERVING`. It never rewinds the
+cursor or deletes indexed data. The supervisor retries until the archive target
+catches up, then restores readiness without requiring a process restart.
+
 The native probe applies the same effective listener configuration as `run`.
 Only `SERVING` exits successfully:
 
@@ -231,7 +236,7 @@ query API is starting or reconnecting. It reports the operational state,
 archive and target heights, indexed height, confirmed lag, and timestamps for
 the latest successful sync and operational error. Supported states are
 `STARTING`, `CONNECTING`, `SYNCING`, `WAITING_FOR_FINALITY`, `READY`,
-`RECONNECTING`, `FAILED`, and `STOPPING`.
+`RECONNECTING`, `WAITING_FOR_ARCHIVE`, `FAILED`, and `STOPPING`.
 
 For example, with the default listen address:
 
@@ -245,8 +250,9 @@ grpcurl -plaintext \
   127.0.0.1:9095 diagnostics.DiagnosticsService/GetStatus
 ```
 
-Health status is advisory and does not reject query RPCs server-side. Clients
-that require readiness gating must check or enable gRPC health checking.
+Query RPCs are rejected with gRPC `Unavailable` whenever `query.Query` is
+`NOT_SERVING`. Health and diagnostics remain available so operators can inspect
+startup, reconnect, archive catch-up, failure, and shutdown states.
 
 ## Development checks
 

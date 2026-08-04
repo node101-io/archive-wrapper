@@ -256,6 +256,47 @@ func TestSyncToAfterCursorlessRestartDoesNotStoreEmptyBlock(t *testing.T) {
 	require.Equal(t, int64(10), cursor)
 }
 
+func TestSyncToRejectsArchiveTargetBehindPersistedCursorBeforeMutation(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	conn := &fakeNotificationConn{listenReady: true}
+	querier := &fakeQuerier{
+		conn:             conn,
+		blockIDsByHeight: map[int64]int64{},
+		rowsByHeight:     map[int64][]sqlcdb.ListActionRowsByBlockIDRow{},
+	}
+	client, err := fetchmina.NewMinaClient(testContractAddress, querier, logger)
+	require.NoError(t, err)
+	db, err := database.NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+	require.NoError(t, db.InsertBlockHeight(68))
+	observer := &recordingSyncObserver{}
+
+	idx, err := NewIndexer(conn, client, db, 10, 32, logger, WithSyncObserver(observer))
+	require.NoError(t, err)
+	err = idx.syncTo(context.Background(), 99, 67)
+
+	require.ErrorIs(t, err, apperrors.ErrArchiveTargetBehindCursor)
+	require.Equal(t, []string{"progress"}, observer.events)
+	require.Equal(t, []SyncProgress{{
+		ArchiveHeight: 99,
+		TargetHeight:  67,
+		Initialized:   true,
+		IndexedHeight: 68,
+	}}, observer.progress)
+	require.Empty(t, observer.completed)
+	require.Empty(t, querier.primedRanges)
+	require.Empty(t, querier.requestedActionHeights)
+	require.Empty(t, querier.pointLookupHeights)
+
+	cursor, err := db.GetBlockHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(68), cursor)
+	hasRecord, err := db.Has(67)
+	require.NoError(t, err)
+	require.False(t, hasRecord)
+}
+
 func TestIndexAvailableBlocksDoesNotAdvanceCursorOnInvalidBlock(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/node101-io/archive-wrapper/diagnostics"
 	"github.com/node101-io/archive-wrapper/indexer"
 	"github.com/stretchr/testify/require"
+	grpcHealthV1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func TestSuperviseIndexerPingsBeforeSessionAndRecovers(t *testing.T) {
@@ -39,7 +41,7 @@ func TestSuperviseIndexerPingsBeforeSessionAndRecovers(t *testing.T) {
 		return nil
 	}
 
-	err := superviseIndexer(context.Background(), pinger, session, controller, reconnectPolicy{
+	err := superviseIndexer(context.Background(), pinger, session, controller, supervisorPolicy{
 		ProbeTimeout: time.Second,
 		RetryDelay:   time.Millisecond,
 	}, logger)
@@ -67,7 +69,7 @@ func TestSuperviseIndexerBoundsPingWithTimeout(t *testing.T) {
 	err := superviseIndexer(context.Background(), pinger, func(context.Context) error {
 		sessionCalls++
 		return nil
-	}, controller, reconnectPolicy{
+	}, controller, supervisorPolicy{
 		ProbeTimeout: 10 * time.Millisecond,
 		RetryDelay:   time.Millisecond,
 	}, logger)
@@ -91,14 +93,14 @@ func TestSuperviseIndexerStopsRetryDelayOnCancellation(t *testing.T) {
 		}), func(context.Context) error {
 			sessionCalls.Add(1)
 			return nil
-		}, controller, reconnectPolicy{
+		}, controller, supervisorPolicy{
 			ProbeTimeout: time.Second,
 			RetryDelay:   time.Hour,
 		}, logger)
 	}()
 
 	require.Eventually(t, func() bool {
-		return store.Snapshot().State == diagnostics.OperationalState_OPERATIONAL_STATE_RECONNECTING
+		return store.Snapshot().State == diagnostics.StateReconnecting
 	}, time.Second, time.Millisecond)
 	cancel()
 	require.ErrorIs(t, <-done, context.Canceled)
@@ -116,14 +118,14 @@ func TestSuperviseIndexerDoesNotRetryFatalError(t *testing.T) {
 	}), func(context.Context) error {
 		sessionCalls++
 		return fatalErr
-	}, controller, reconnectPolicy{
+	}, controller, supervisorPolicy{
 		ProbeTimeout: time.Second,
 		RetryDelay:   time.Millisecond,
 	}, logger)
 
 	require.ErrorIs(t, err, fatalErr)
 	require.Equal(t, 1, sessionCalls)
-	require.Equal(t, diagnostics.OperationalState_OPERATIONAL_STATE_FAILED, store.Snapshot().State)
+	require.Equal(t, diagnostics.StateFailed, store.Snapshot().State)
 	require.Equal(t, "indexer failed", store.Snapshot().LastError)
 }
 
@@ -140,7 +142,7 @@ func TestSuperviseIndexerRetriesTypedNotificationFailure(t *testing.T) {
 			return apperrors.ErrNotificationConnectionLost
 		}
 		return nil
-	}, controller, reconnectPolicy{
+	}, controller, supervisorPolicy{
 		ProbeTimeout: time.Second,
 		RetryDelay:   time.Millisecond,
 	}, logger)
@@ -148,6 +150,78 @@ func TestSuperviseIndexerRetriesTypedNotificationFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, sessionCalls)
 	require.Equal(t, "postgres notification connection unavailable", store.Snapshot().LastError)
+}
+
+func TestSuperviseIndexerWaitsForArchiveAndRecovers(t *testing.T) {
+	healthServer, store, controller := newTestReadinessController()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	readyProgress := indexer.SyncProgress{
+		ArchiveHeight: 100,
+		TargetHeight:  68,
+		Initialized:   true,
+		IndexedHeight: 68,
+	}
+	controller.OnSyncCompleted(readyProgress)
+	previousSuccessfulSync := *store.Snapshot().LastSuccessfulSyncAt
+	var sessionCalls atomic.Int32
+
+	err := superviseIndexer(context.Background(), pingerFunc(func(context.Context) error {
+		return nil
+	}), func(context.Context) error {
+		if sessionCalls.Add(1) == 1 {
+			controller.OnSyncStarted()
+			controller.OnSyncProgress(indexer.SyncProgress{
+				ArchiveHeight: 99,
+				TargetHeight:  67,
+				Initialized:   true,
+				IndexedHeight: 68,
+			})
+			return fmt.Errorf("%w: cursor=68 target=67", apperrors.ErrArchiveTargetBehindCursor)
+		}
+
+		recovered := readyProgress
+		recovered.ArchiveHeight = 100
+		controller.OnSyncStarted()
+		controller.OnSyncCompleted(recovered)
+		return nil
+	}, controller, supervisorPolicy{
+		ProbeTimeout: time.Second,
+		RetryDelay:   10 * time.Millisecond,
+	}, logger)
+
+	require.NoError(t, err)
+	require.Equal(t, int32(2), sessionCalls.Load())
+	require.Equal(t, diagnostics.StateReady, store.Snapshot().State)
+	require.True(t, store.Snapshot().Ready)
+	require.True(t, controller.queryGate.isReady())
+	require.Equal(t, archiveSourceBehindSummary, store.Snapshot().LastError)
+	require.GreaterOrEqual(t, store.Snapshot().LastSuccessfulSyncAt.UnixNano(), previousSuccessfulSync.UnixNano())
+	requireHealthStatus(t, healthServer, queryGRPCServiceName, grpcHealthV1.HealthCheckResponse_SERVING)
+}
+
+func TestSuperviseIndexerSourceBehindRetryStopsOnCancellation(t *testing.T) {
+	_, store, controller := newTestReadinessController()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+
+	go func() {
+		done <- superviseIndexer(ctx, pingerFunc(func(context.Context) error {
+			return nil
+		}), func(context.Context) error {
+			return apperrors.ErrArchiveTargetBehindCursor
+		}, controller, supervisorPolicy{
+			ProbeTimeout: time.Second,
+			RetryDelay:   time.Hour,
+		}, logger)
+	}()
+
+	require.Eventually(t, func() bool {
+		return store.Snapshot().State == diagnostics.StateWaitingForArchive
+	}, time.Second, time.Millisecond)
+	require.Equal(t, archiveSourceBehindSummary, store.Snapshot().LastError)
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
 }
 
 func TestSuperviseIndexerDoesNotLogPostgresConnectionDetails(t *testing.T) {
@@ -165,7 +239,7 @@ func TestSuperviseIndexerDoesNotLogPostgresConnectionDetails(t *testing.T) {
 		return nil
 	}), func(context.Context) error {
 		return nil
-	}, controller, reconnectPolicy{
+	}, controller, supervisorPolicy{
 		ProbeTimeout: time.Second,
 		RetryDelay:   time.Millisecond,
 	}, logger)

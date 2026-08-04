@@ -138,6 +138,12 @@ finality waiting, PostgreSQL loss, and reconnect are correctly non-serving.
 The wrapper process remains alive during retryable PostgreSQL outages so the
 healthcheck can distinguish unready from crashed.
 
+An archive target below the persisted LevelDB cursor is also non-serving and is
+reported as `WAITING_FOR_ARCHIVE`. The wrapper does not rewind or delete the
+cursor; it retries until the archive source catches up. Business query RPCs are
+rejected with gRPC `Unavailable` while non-serving, while health and diagnostics
+remain accessible for recovery inspection.
+
 `trusted-network` permits plaintext gRPC on a controlled private container
 network. It records an operator-selected trust boundary; it does not implement
 firewalling, authentication, or encryption. TLS/mTLS and public-network

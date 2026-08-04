@@ -261,6 +261,43 @@ func TestDbManagerInitializeOrValidateDeploymentAllowsInitializedDatabaseWithout
 	require.False(t, hasCursor)
 }
 
+func TestDbManagerInitializeOrValidateDeploymentValidatesCursorStartBoundary(t *testing.T) {
+	tests := []struct {
+		name        string
+		cursor      int64
+		wantCorrupt bool
+	}{
+		{name: "below start height", cursor: 9, wantCorrupt: true},
+		{name: "at start height", cursor: 10},
+		{name: "above start height", cursor: 11},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, manager.Close()) }()
+
+			metadata := testDeploymentMetadata()
+			state, err := manager.InitializeOrValidateDeployment("archive-wrapper:deployment", metadata)
+			require.NoError(t, err)
+			require.Equal(t, DeploymentStateFresh, state)
+			require.NoError(t, manager.InsertBlockHeight(tt.cursor))
+
+			state, err = manager.InitializeOrValidateDeployment("archive-wrapper:deployment", metadata)
+			if tt.wantCorrupt {
+				require.ErrorIs(t, err, apperrors.ErrDBCorrupt)
+				require.Equal(t, DeploymentStateUnspecified, state)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, DeploymentStateInitialized, state)
+		})
+	}
+}
+
 func TestDbManagerInitializeOrValidateDeploymentRejectsMalformedState(t *testing.T) {
 	tests := []struct {
 		name  string

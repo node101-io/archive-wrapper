@@ -75,7 +75,7 @@ func (manager *DbManager) InitializeOrValidateDeployment(
 				expected,
 			)
 		}
-		if err := manager.validatePersistedCursor(); err != nil {
+		if err := manager.validatePersistedCursor(expected.StartHeight); err != nil {
 			return DeploymentStateUnspecified, err
 		}
 		return DeploymentStateInitialized, nil
@@ -137,7 +137,7 @@ func validateDeploymentMetadata(metadata DeploymentMetadata) error {
 	return nil
 }
 
-func (manager *DbManager) validatePersistedCursor() error {
+func (manager *DbManager) validatePersistedCursor(startHeight int64) error {
 	record, err := manager.db.Get([]byte(manager.blockHeightDatabaseKey), nil)
 	switch {
 	case err == nil:
@@ -150,6 +150,14 @@ func (manager *DbManager) validatePersistedCursor() error {
 				"%w: block height cursor must be positive: %d",
 				apperrors.ErrDBCorrupt,
 				height,
+			)
+		}
+		if height < startHeight {
+			return fmt.Errorf(
+				"%w: block height cursor %d is below deployment start height %d",
+				apperrors.ErrDBCorrupt,
+				height,
+				startHeight,
 			)
 		}
 		return nil

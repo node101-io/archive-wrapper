@@ -172,7 +172,8 @@ func runRuntime(
 		}
 	}()
 
-	grpcServer := grpc.NewServer()
+	queryGate := &queryReadinessGate{}
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(queryGate.unaryServerInterceptor))
 	queryService, err := query.NewQuery(
 		db,
 		logger,
@@ -185,7 +186,7 @@ func runRuntime(
 	diagnosticsStore := diagnostics.NewStore()
 	diagnosticsService := diagnostics.NewServer(diagnosticsStore)
 	healthServer := registerGRPCServices(grpcServer, queryService, diagnosticsService)
-	readiness := newReadinessController(healthServer, diagnosticsStore)
+	readiness := newReadinessController(healthServer, diagnosticsStore, queryGate)
 
 	// External cancellation wakes the coordinator; workers are canceled only
 	// after readiness has been withdrawn.
@@ -212,9 +213,9 @@ func runRuntime(
 				runtimeLogger,
 			)
 		}
-		err := superviseIndexer(runCtx, queryPool, session, readiness, reconnectPolicy{
+		err := superviseIndexer(runCtx, queryPool, session, readiness, supervisorPolicy{
 			ProbeTimeout: postgresProbeTimeout,
-			RetryDelay:   notificationReconnectDelay,
+			RetryDelay:   indexerRetryDelay,
 		}, runtimeLogger)
 		workerResults <- runtimeWorkerResult{name: "indexer", err: err}
 	}()

@@ -122,6 +122,10 @@ inspect_image_contract
 "${compose[@]}" up --detach --no-deps wrapper1
 wait_for_container_state wrapper1 running
 wait_for_probe_failure wrapper1
+wrapper_address=$(published_address wrapper1)
+ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper_address" \
+  GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
+  go test -tags=container ./tests/container -run '^TestUnavailableQueryIsRejected$' -count=1
 
 "${compose[@]}" up --detach postgres
 wait_for_healthy postgres
@@ -135,6 +139,10 @@ ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper_address" \
 # A PostgreSQL outage withdraws readiness, and recovery does not require a wrapper restart.
 "${compose[@]}" stop postgres
 wait_for_probe_failure wrapper1
+wrapper_address=$(published_address wrapper1)
+ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper_address" \
+  GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
+  go test -tags=container ./tests/container -run '^TestUnavailableQueryIsRejected$' -count=1
 "${compose[@]}" start postgres
 wait_for_healthy postgres
 wait_for_healthy wrapper1

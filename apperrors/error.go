@@ -66,6 +66,8 @@ var (
 	ErrNilIndexer = errors.New("nil indexer")
 	// ErrBlockHeightRegression reports an attempt to move the latest processed cursor backwards.
 	ErrBlockHeightRegression = errors.New("block height cursor cannot move backwards")
+	// ErrArchiveTargetBehindCursor reports that the current archive source cannot verify the persisted cursor yet.
+	ErrArchiveTargetBehindCursor = errors.New("archive target is behind indexed cursor")
 	// ErrInvalidBlockRange reports that the configured sync range parameters are invalid.
 	ErrInvalidBlockRange = errors.New("invalid block range")
 	// ErrNotificationConnectionLost reports a retryable PostgreSQL LISTEN/NOTIFY connection failure.

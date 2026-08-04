@@ -29,15 +29,16 @@ func TestRegisterGRPCServicesStartsQueryUnavailableAndDiagnosticsServing(t *test
 
 func TestReadinessControllerTransitionsThroughSyncAndReconnect(t *testing.T) {
 	healthServer, store, controller := newTestReadinessController()
+	require.False(t, controller.queryGate.isReady())
 
 	controller.Connecting()
-	require.Equal(t, diagnostics.OperationalState_OPERATIONAL_STATE_CONNECTING, store.Snapshot().State)
+	require.Equal(t, diagnostics.StateConnecting, store.Snapshot().State)
 	requireHealthStatus(t, healthServer, queryGRPCServiceName, grpcHealthV1.HealthCheckResponse_NOT_SERVING)
 
 	controller.OnSyncStarted()
 	controller.OnSyncProgress(indexer.SyncProgress{ArchiveHeight: 42, TargetHeight: 10})
 	controller.OnSyncCompleted(indexer.SyncProgress{ArchiveHeight: 42, TargetHeight: 10})
-	require.Equal(t, diagnostics.OperationalState_OPERATIONAL_STATE_WAITING_FOR_FINALITY, store.Snapshot().State)
+	require.Equal(t, diagnostics.StateWaitingForFinality, store.Snapshot().State)
 	require.False(t, store.Snapshot().Ready)
 
 	readyProgress := indexer.SyncProgress{
@@ -48,18 +49,30 @@ func TestReadinessControllerTransitionsThroughSyncAndReconnect(t *testing.T) {
 	}
 	controller.OnSyncStarted()
 	controller.OnSyncCompleted(readyProgress)
-	require.Equal(t, diagnostics.OperationalState_OPERATIONAL_STATE_READY, store.Snapshot().State)
+	require.Equal(t, diagnostics.StateReady, store.Snapshot().State)
 	require.True(t, store.Snapshot().Ready)
+	require.True(t, controller.queryGate.isReady())
 	requireHealthStatus(t, healthServer, queryGRPCServiceName, grpcHealthV1.HealthCheckResponse_SERVING)
 
 	controller.OnSyncStarted()
-	require.Equal(t, diagnostics.OperationalState_OPERATIONAL_STATE_SYNCING, store.Snapshot().State)
+	require.Equal(t, diagnostics.StateSyncing, store.Snapshot().State)
 	require.True(t, store.Snapshot().Ready)
+	require.True(t, controller.queryGate.isReady())
 	requireHealthStatus(t, healthServer, queryGRPCServiceName, grpcHealthV1.HealthCheckResponse_SERVING)
 
-	controller.Reconnecting("postgres notification connection unavailable")
-	require.Equal(t, diagnostics.OperationalState_OPERATIONAL_STATE_RECONNECTING, store.Snapshot().State)
+	lastSuccessfulSyncAt := *store.Snapshot().LastSuccessfulSyncAt
+	controller.WaitingForArchive(archiveSourceBehindSummary)
+	require.Equal(t, diagnostics.StateWaitingForArchive, store.Snapshot().State)
 	require.False(t, store.Snapshot().Ready)
+	require.False(t, controller.queryGate.isReady())
+	require.Equal(t, archiveSourceBehindSummary, store.Snapshot().LastError)
+	require.Equal(t, lastSuccessfulSyncAt, *store.Snapshot().LastSuccessfulSyncAt)
+	requireHealthStatus(t, healthServer, queryGRPCServiceName, grpcHealthV1.HealthCheckResponse_NOT_SERVING)
+
+	controller.Reconnecting("postgres notification connection unavailable")
+	require.Equal(t, diagnostics.StateReconnecting, store.Snapshot().State)
+	require.False(t, store.Snapshot().Ready)
+	require.False(t, controller.queryGate.isReady())
 	require.Equal(t, "postgres notification connection unavailable", store.Snapshot().LastError)
 	requireHealthStatus(t, healthServer, queryGRPCServiceName, grpcHealthV1.HealthCheckResponse_NOT_SERVING)
 }
@@ -70,8 +83,9 @@ func TestReadinessControllerStoppingIsTerminal(t *testing.T) {
 	controller.OnSyncCompleted(indexer.SyncProgress{Initialized: true, IndexedHeight: 10})
 	controller.Connecting()
 
-	require.Equal(t, diagnostics.OperationalState_OPERATIONAL_STATE_STOPPING, store.Snapshot().State)
+	require.Equal(t, diagnostics.StateStopping, store.Snapshot().State)
 	require.False(t, store.Snapshot().Ready)
+	require.False(t, controller.queryGate.isReady())
 	requireHealthStatus(t, healthServer, queryGRPCServiceName, grpcHealthV1.HealthCheckResponse_NOT_SERVING)
 }
 
@@ -81,7 +95,7 @@ func newTestReadinessController() (*grpcHealth.Server, *diagnostics.Store, *read
 	healthServer.SetServingStatus(queryGRPCServiceName, grpcHealthV1.HealthCheckResponse_NOT_SERVING)
 	healthServer.SetServingStatus(diagnosticsGRPCServiceName, grpcHealthV1.HealthCheckResponse_SERVING)
 	store := diagnostics.NewStore()
-	return healthServer, store, newReadinessController(healthServer, store)
+	return healthServer, store, newReadinessController(healthServer, store, &queryReadinessGate{})
 }
 
 func requireHealthStatus(
