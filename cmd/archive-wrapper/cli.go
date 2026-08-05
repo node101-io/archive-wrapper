@@ -9,13 +9,13 @@ import (
 	"os"
 	"strings"
 
+	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/node101-io/archive-wrapper/config"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
 // run validates command-specific inputs before handing control to the runtime.
-func run(args []string, ctx context.Context,
-	cancel context.CancelFunc, logger *slog.Logger) error {
+func run(args []string, ctx context.Context, cancel context.CancelFunc, logger *slog.Logger) error {
 	cliLogger := logger.With("component", "cli")
 
 	if len(args) == 0 {
@@ -24,86 +24,44 @@ func run(args []string, ctx context.Context,
 
 	switch strings.ToLower(args[0]) {
 	case "start":
-		startCmd := flag.NewFlagSet("start", flag.ContinueOnError)
-
-		defaultConfigPath := os.Getenv("ARCHIVE_WRAPPER_CONFIG")
-		configPath := startCmd.String(
-			"config",
-			defaultConfigPath,
-			"path to configuration file",
-		)
-		homePath := startCmd.String(
-			"home",
-			"",
-			"path to chain home directory",
-		)
-
-		if err := startCmd.Parse(args[1:]); err != nil {
+		cmd := newRuntimeFlagSet("start")
+		if err := cmd.Parse(args[1:]); err != nil {
 			return err
 		}
-
-		if strings.TrimSpace(*configPath) == "" {
-			return fmt.Errorf("--config is required unless ARCHIVE_WRAPPER_CONFIG is set")
-		}
-		if strings.TrimSpace(*homePath) == "" {
-			return fmt.Errorf("--home is required")
-		}
-
-		cliLogger.Info(
-			"start command received",
-			"config",
-			*configPath,
-			"home",
-			*homePath,
-		)
-
-		cfg, err := config.Load(*configPath)
+		configPath, err := resolveConfigPath(cmd.FlagSet, *cmd.configPath)
 		if err != nil {
 			return err
 		}
-		// A fresh start must not silently reuse a persisted cursor.
+		cfg, err := config.Resolve(configPath, cmd.overrides())
+		if err != nil {
+			return err
+		}
+
+		cliLogger.Info("start command received", "config", configPath, "home", cfg.ChainHome)
 		if err := ensureDBPathDoesNotExist(cfg.DBPath); err != nil {
 			return err
 		}
 
-		bridgeParams, err := loadBridgeParamsFromHome(*homePath)
+		bridgeParams, err := loadBridgeParamsFromHome(cfg.ChainHome)
 		if err != nil {
 			return fmt.Errorf("load bridge params from genesis: %w", err)
 		}
-
 		return runStart(ctx, cfg, bridgeParams, cancel, logger)
 
 	case "proceed":
-		proceedCmd := flag.NewFlagSet("proceed", flag.ContinueOnError)
-
-		defaultConfigPath := os.Getenv("ARCHIVE_WRAPPER_CONFIG")
-		configPath := proceedCmd.String(
-			"config",
-			defaultConfigPath,
-			"path to configuration file",
-		)
-		homePath := proceedCmd.String(
-			"home",
-			"",
-			"path to chain home directory",
-		)
-
-		if err := proceedCmd.Parse(args[1:]); err != nil {
+		cmd := newRuntimeFlagSet("proceed")
+		if err := cmd.Parse(args[1:]); err != nil {
 			return err
 		}
-
-		if strings.TrimSpace(*configPath) == "" {
-			return fmt.Errorf("--config is required unless ARCHIVE_WRAPPER_CONFIG is set")
-		}
-		if strings.TrimSpace(*homePath) == "" {
-			return fmt.Errorf("--home is required")
-		}
-
-		cfg, err := config.Load(*configPath)
+		configPath, err := resolveConfigPath(cmd.FlagSet, *cmd.configPath)
 		if err != nil {
 			return err
 		}
-		// Proceed is valid only after start has initialized the local database.
+		cfg, err := config.Resolve(configPath, cmd.overrides())
+		if err != nil {
+			return err
+		}
+
 		if _, err := os.Stat(cfg.DBPath); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("db does not exist: %s; run start first", cfg.DBPath)
@@ -116,76 +74,46 @@ func run(args []string, ctx context.Context,
 			cfg.BlockHeightDatabaseKey,
 			logger,
 		)
-		// A missing cursor is valid when initialization finished before the first block.
 		if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
 			return fmt.Errorf("load latest processed block height: %w", err)
 		}
 
-		cliLogger.Info(
-			"proceed command received",
-			"config",
-			*configPath,
-			"home",
-			*homePath,
-		)
+		cliLogger.Info("proceed command received", "config", configPath, "home", cfg.ChainHome)
 		if errors.Is(err, leveldb.ErrNotFound) {
 			cliLogger.Info("resuming before first cursor", "db_path", cfg.DBPath)
 		} else {
-			cliLogger.Info(
-				"resuming from persisted block height",
-				"block_height",
-				latestProcessedBlockHeight,
-				"db_path",
-				cfg.DBPath,
-			)
+			cliLogger.Info("resuming from persisted block height", "block_height", latestProcessedBlockHeight, "db_path", cfg.DBPath)
 		}
 
-		bridgeParams, err := loadBridgeParamsFromHome(*homePath)
+		bridgeParams, err := loadBridgeParamsFromHome(cfg.ChainHome)
 		if err != nil {
 			return fmt.Errorf("load bridge params from genesis: %w", err)
 		}
-
-		// Keep the genesis start height for bounds validation; the indexer
-		// resumes from the persisted cursor automatically when it exists.
 		return runStart(ctx, cfg, bridgeParams, cancel, logger)
 
 	case "stop":
-		stopCmd := flag.NewFlagSet("stop", flag.ContinueOnError)
-
-		defaultConfigPath := os.Getenv("ARCHIVE_WRAPPER_CONFIG")
-		configPath := stopCmd.String(
-			"config",
-			defaultConfigPath,
-			"path to configuration file",
-		)
-
-		socketPath := stopCmd.String(
-			"socket-path",
-			"",
-			"path to control socket",
-		)
-
-		if err := stopCmd.Parse(args[1:]); err != nil {
+		cmd := flag.NewFlagSet("stop", flag.ContinueOnError)
+		configPath := cmd.String("config", "", "path to configuration file")
+		legacySocketPath := cmd.String("socket-path", "", "legacy path to control socket")
+		controlSocketPath := cmd.String("control-socket-path", "", "path to control socket")
+		if err := cmd.Parse(args[1:]); err != nil {
 			return err
+		}
+		if flagWasSet(cmd, "socket-path") && flagWasSet(cmd, "control-socket-path") {
+			return fmt.Errorf("--socket-path and --control-socket-path cannot be used together")
 		}
 
 		resolvedSocketPath, err := resolveStopSocketPath(
-			*socketPath,
+			firstVisitedSocketPath(cmd, *legacySocketPath, *controlSocketPath),
+			flagWasSet(cmd, "socket-path") || flagWasSet(cmd, "control-socket-path"),
 			*configPath,
-			os.Getenv("ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH"),
+			flagWasSet(cmd, "config"),
 		)
 		if err != nil {
 			return err
 		}
 
-		cliLogger.Info(
-			"stop command received",
-			"config",
-			strings.TrimSpace(*configPath),
-			"socket_path",
-			resolvedSocketPath,
-		)
-
+		cliLogger.Info("stop command received", "config", strings.TrimSpace(*configPath), "socket_path", resolvedSocketPath)
 		return runStop(resolvedSocketPath, logger)
 
 	case "help", "-h", "--help":
@@ -196,10 +124,83 @@ func run(args []string, ctx context.Context,
 	}
 }
 
+type runtimeFlagSet struct {
+	*flag.FlagSet
+	configPath        *string
+	homePath          *string
+	listenAddress     *string
+	transportMode     *string
+	dbPath            *string
+	controlSocketPath *string
+}
+
+func newRuntimeFlagSet(name string) *runtimeFlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	return &runtimeFlagSet{
+		FlagSet:           fs,
+		configPath:        fs.String("config", "", "path to configuration file"),
+		homePath:          fs.String("home", "", "path to chain home directory"),
+		listenAddress:     fs.String("grpc-listen-address", "", "gRPC listen address"),
+		transportMode:     fs.String("grpc-transport-mode", "", "gRPC transport mode"),
+		dbPath:            fs.String("db-path", "", "LevelDB path"),
+		controlSocketPath: fs.String("control-socket-path", "", "control socket path"),
+	}
+}
+
+func (f *runtimeFlagSet) overrides() config.Overrides {
+	return config.Overrides{
+		ChainHome:         visitedStringFlag(f.FlagSet, "home", f.homePath),
+		GRPCListenAddress: visitedStringFlag(f.FlagSet, "grpc-listen-address", f.listenAddress),
+		GRPCTransportMode: visitedStringFlag(f.FlagSet, "grpc-transport-mode", f.transportMode),
+		DBPath:            visitedStringFlag(f.FlagSet, "db-path", f.dbPath),
+		ControlSocketPath: visitedStringFlag(f.FlagSet, "control-socket-path", f.controlSocketPath),
+	}
+}
+
 func usage() string {
 	return `usage:
-  archive-wrapper start --config <path> --home <path>
-  archive-wrapper proceed --config <path> --home <path>
-  archive-wrapper stop [--config <path>] [--socket-path <path>]
+  archive-wrapper start [--config <path>] [--home <path>] [runtime overrides]
+  archive-wrapper proceed [--config <path>] [--home <path>] [runtime overrides]
+  archive-wrapper stop [--config <path>] [--control-socket-path <path>]
 `
+}
+
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	wasSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			wasSet = true
+		}
+	})
+	return wasSet
+}
+
+func visitedStringFlag(fs *flag.FlagSet, name string, value *string) *string {
+	if !flagWasSet(fs, name) {
+		return nil
+	}
+	return value
+}
+
+func resolveConfigPath(fs *flag.FlagSet, flagValue string) (string, error) {
+	if flagWasSet(fs, "config") {
+		if strings.TrimSpace(flagValue) == "" {
+			return "", apperrors.ErrConfigPathRequired
+		}
+		return strings.TrimSpace(flagValue), nil
+	}
+	if value, ok := os.LookupEnv("ARCHIVE_WRAPPER_CONFIG"); ok {
+		if strings.TrimSpace(value) == "" {
+			return "", apperrors.ErrConfigPathRequired
+		}
+		return strings.TrimSpace(value), nil
+	}
+	return "", apperrors.ErrConfigPathRequired
+}
+
+func firstVisitedSocketPath(fs *flag.FlagSet, legacy, canonical string) string {
+	if flagWasSet(fs, "socket-path") {
+		return legacy
+	}
+	return canonical
 }

@@ -5,12 +5,13 @@ configured zkApp's actions from the archive PostgreSQL database, follows the
 confirmed best chain, stores indexed actions and cursor metadata in LevelDB,
 and exposes read-only gRPC queries for the validator application.
 
-The sidecar is local to the validator host. The wrapper enforces a literal
-loopback gRPC listen address such as `127.0.0.1:9095` or `[::1]:9095`; hostnames,
-unspecified addresses, and non-loopback IP addresses are rejected. Pulsar and
-the wrapper must therefore share a network namespace. Deployments across
-separate container networks require a separately designed Unix socket or
-TLS/mTLS transport.
+The sidecar defaults to a local-only gRPC transport. `loopback` accepts only a
+literal loopback address such as `127.0.0.1:9095` or `[::1]:9095`. For a shared
+Docker/private network, `trusted-network` must be explicitly selected; it may
+bind to private or unspecified addresses and uses plaintext gRPC. This mode is
+an operator-declared trust boundary, not a firewall or network-isolation check.
+Deployments outside a controlled private network require a future TLS/mTLS
+transport.
 
 ## Requirements
 
@@ -34,6 +35,8 @@ fields are:
 | `block_height_database_key` | LevelDB key for the latest processed cursor. |
 | `db_path` | Local LevelDB directory. |
 | `grpc_listen_address` | TCP address for the local query server. |
+| `grpc_transport_mode` | `loopback` by default, or explicit `trusted-network`. |
+| `chain_home` | Optional Pulsar home; start/proceed require it from config, CLI, or environment. |
 | `control_socket_path` | Unix socket used by the `stop` command. |
 | `deployment_metadata_key` | LevelDB key used to store deployment identity. |
 | `deployment_metadata.schema_version` | Stored deployment metadata schema version. |
@@ -58,12 +61,13 @@ Example:
 
 ```dotenv
 POSTGRES_URI=postgres://user:password@127.0.0.1:5432/archive?sslmode=disable
-CHAIN_HOME=/path/to/validator
+ARCHIVE_WRAPPER_CHAIN_HOME=/path/to/validator
 CONFIG=config.yaml
 ```
 
-`CHAIN_HOME` is used by the Makefile. `CONFIG` is optional if you want to use
-the default `config.yaml`.
+`CHAIN_HOME` remains a Makefile convenience variable. The binary uses
+`ARCHIVE_WRAPPER_CHAIN_HOME`; `CONFIG` is a Makefile convenience variable and
+the binary requires `--config` or `ARCHIVE_WRAPPER_CONFIG`.
 
 Build the pure-Go binary with:
 
@@ -117,9 +121,9 @@ make stop CONFIG=/path/to/config.yaml SOCKET_PATH=/tmp/archive-wrapper.sock
 
 The control socket accepts `PING` (responding with `PONG`) and `STOP`. The
 process also shuts down gracefully on `SIGINT` or `SIGTERM`. The `stop`
-command can use `--socket-path` directly; otherwise it resolves the socket
-from `--config`, `ARCHIVE_WRAPPER_CONFIG`, or
-`ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH`.
+command can use `--control-socket-path` directly (or the legacy
+`--socket-path` alias). Otherwise it resolves the socket from
+`ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH` and then the selected config file.
 
 ### Without Makefile
 
@@ -146,6 +150,10 @@ are:
   and `proceed`.
 - `ARCHIVE_WRAPPER_CONFIG` — default config path for `start`, `proceed`, and
   `stop`.
+- `ARCHIVE_WRAPPER_CHAIN_HOME` — Pulsar chain home for `start` and `proceed`.
+- `ARCHIVE_WRAPPER_GRPC_LISTEN_ADDRESS` — effective gRPC listen address.
+- `ARCHIVE_WRAPPER_GRPC_TRANSPORT_MODE` — effective gRPC transport mode.
+- `ARCHIVE_WRAPPER_DB_PATH` — effective LevelDB path.
 - `ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH` — fallback socket path for `stop`.
 - `ARCHIVE_WRAPPER_LOG_PATH` — append-only log path; defaults to
   `archive-wrapper.log`.
@@ -164,7 +172,9 @@ The query service is defined in
 
 Blocks with no supported actions are still recorded by advancing the cursor.
 The gRPC endpoint has no public authentication or authorization layer, so it
-must stay bound to a trusted local interface.
+must stay in the boundary selected by `grpc_transport_mode`. In
+`trusted-network` mode, network isolation and access control are deployment
+responsibilities.
 
 ### Health and diagnostics
 

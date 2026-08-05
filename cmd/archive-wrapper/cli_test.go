@@ -1,0 +1,119 @@
+package main
+
+import (
+	"flag"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/node101-io/archive-wrapper/apperrors"
+	"github.com/stretchr/testify/require"
+)
+
+func TestResolveConfigPathPrecedence(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		env     *string
+		want    string
+		wantErr error
+	}{
+		{name: "cli_over_environment", args: []string{"--config", "cli.yaml"}, env: stringPointer("env.yaml"), want: "cli.yaml"},
+		{name: "environment", env: stringPointer("env.yaml"), want: "env.yaml"},
+		{name: "explicit_empty_cli", args: []string{"--config="}, env: stringPointer("env.yaml"), wantErr: apperrors.ErrConfigPathRequired},
+		{name: "explicit_empty_environment", env: stringPointer(""), wantErr: apperrors.ErrConfigPathRequired},
+		{name: "missing", wantErr: apperrors.ErrConfigPathRequired},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			unsetEnvironment(t, "ARCHIVE_WRAPPER_CONFIG")
+			if tt.env != nil {
+				t.Setenv("ARCHIVE_WRAPPER_CONFIG", *tt.env)
+			}
+
+			fs := flag.NewFlagSet("test", flag.ContinueOnError)
+			configPath := fs.String("config", "", "")
+			require.NoError(t, fs.Parse(tt.args))
+
+			got, err := resolveConfigPath(fs, *configPath)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestResolveStopSocketPathPrecedence(t *testing.T) {
+	configPath := writeStopConfig(t, "/tmp/config.sock")
+
+	t.Run("cli_over_environment_and_config", func(t *testing.T) {
+		t.Setenv("ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH", "/tmp/env.sock")
+		got, err := resolveStopSocketPath("/tmp/cli.sock", true, configPath, true)
+		require.NoError(t, err)
+		require.Equal(t, "/tmp/cli.sock", got)
+	})
+
+	t.Run("environment_over_config", func(t *testing.T) {
+		t.Setenv("ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH", "/tmp/env.sock")
+		got, err := resolveStopSocketPath("", false, configPath, true)
+		require.NoError(t, err)
+		require.Equal(t, "/tmp/env.sock", got)
+	})
+
+	t.Run("config", func(t *testing.T) {
+		unsetEnvironment(t, "ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH")
+		got, err := resolveStopSocketPath("", false, configPath, true)
+		require.NoError(t, err)
+		require.Equal(t, "/tmp/config.sock", got)
+	})
+
+	t.Run("explicit_empty_cli", func(t *testing.T) {
+		_, err := resolveStopSocketPath("", true, configPath, true)
+		require.ErrorIs(t, err, apperrors.ErrControlSocketPathRequired)
+	})
+
+	t.Run("explicit_empty_environment", func(t *testing.T) {
+		t.Setenv("ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH", "")
+		_, err := resolveStopSocketPath("", false, configPath, true)
+		require.ErrorIs(t, err, apperrors.ErrControlSocketPathRequired)
+	})
+}
+
+func writeStopConfig(t *testing.T, socketPath string) string {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	contents := []byte(`
+block_height_database_key: "archive-wrapper"
+db_path: "./data/archive-wrapper"
+grpc_listen_address: "127.0.0.1:9095"
+grpc_transport_mode: "loopback"
+control_socket_path: "` + socketPath + `"
+deployment_metadata_key: "archive-wrapper:deployment"
+deployment_metadata:
+  schema_version: 1
+  mina_network_id: "testnet"
+`)
+	require.NoError(t, os.WriteFile(configPath, contents, 0o600))
+	return configPath
+}
+
+func unsetEnvironment(t *testing.T, key string) {
+	t.Helper()
+	oldValue, wasSet := os.LookupEnv(key)
+	require.NoError(t, os.Unsetenv(key))
+	t.Cleanup(func() {
+		if wasSet {
+			require.NoError(t, os.Setenv(key, oldValue))
+			return
+		}
+		require.NoError(t, os.Unsetenv(key))
+	})
+}
+
+func stringPointer(value string) *string {
+	return &value
+}

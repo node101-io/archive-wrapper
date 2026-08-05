@@ -1,6 +1,8 @@
 block_height_database_key: "archive-wrapper"
 db_path: "./v2/data/archive-wrapper"
 grpc_listen_address: "127.0.0.1:9095"
+grpc_transport_mode: "loopback"
+chain_home: ""
 control_socket_path: "/tmp/archive-wrapper-mainnet.sock"
 deployment_metadata_key: "archive-wrapper:deployment"
 deployment_metadata:

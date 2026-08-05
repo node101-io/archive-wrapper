@@ -71,8 +71,16 @@ var (
 var (
 	// ErrGRPCAddressRequired reports that grpc_listen_address is missing from config.
 	ErrGRPCAddressRequired = errors.New("grpc_listen_address is required")
-	// ErrInvalidGRPCListenAddress reports that grpc_listen_address is not a literal loopback TCP address.
-	ErrInvalidGRPCListenAddress = errors.New("grpc_listen_address must be a literal loopback TCP address")
+	// ErrInvalidGRPCListenAddress reports that grpc_listen_address violates the selected transport policy.
+	ErrInvalidGRPCListenAddress = errors.New("grpc_listen_address violates the selected transport policy")
+	// ErrUnsupportedGRPCTransportMode reports an unknown or intentionally unsupported transport mode.
+	ErrUnsupportedGRPCTransportMode = errors.New("unsupported grpc transport mode")
+	// ErrConfigPathRequired reports that no configuration file path was provided.
+	ErrConfigPathRequired = errors.New("archive-wrapper config path is required")
+	// ErrChainHomeRequired reports that the chain home was not provided for a runtime command.
+	ErrChainHomeRequired = errors.New("chain home is required")
+	// ErrPostgresConfigurationInvalid reports a malformed PostgreSQL pool configuration.
+	ErrPostgresConfigurationInvalid = errors.New("postgres query pool configuration is invalid")
 	// ErrContractAddressRequired reports that contract_address is missing from bridge params.
 	ErrContractAddressRequired = errors.New("contract_address is required")
 	// ErrBlockHeightDBKeyRequired reports that block_height_database_key is missing from config.

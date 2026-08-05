@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -146,6 +147,33 @@ func TestSuperviseIndexerRetriesTypedNotificationFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, sessionCalls)
 	require.Equal(t, "postgres notification connection unavailable", store.Snapshot().LastError)
+}
+
+func TestSuperviseIndexerDoesNotLogPostgresConnectionDetails(t *testing.T) {
+	_, _, controller := newTestReadinessController()
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	secretURI := "postgres://user:p%40ss@db.internal/archive?sslmode=disable"
+	pingCalls := 0
+
+	err := superviseIndexer(context.Background(), pingerFunc(func(context.Context) error {
+		pingCalls++
+		if pingCalls == 1 {
+			return errors.New(secretURI)
+		}
+		return nil
+	}), func(context.Context) error {
+		return nil
+	}, controller, reconnectPolicy{
+		ProbeTimeout: time.Second,
+		RetryDelay:   time.Millisecond,
+	}, logger)
+
+	require.NoError(t, err)
+	require.Contains(t, output.String(), "postgres query connection unavailable")
+	require.NotContains(t, output.String(), secretURI)
+	require.NotContains(t, output.String(), "p%40ss")
+	require.NotContains(t, output.String(), "db.internal")
 }
 
 func TestRunIndexerSessionBoundsNotificationConnectWithTimeout(t *testing.T) {

@@ -66,6 +66,8 @@ func runStart(ctx context.Context, cfg config.Config,
 		bridgeParams.StartBlockHeight,
 		"grpc_listen_address",
 		cfg.GRPCListenAddress,
+		"grpc_transport_mode",
+		cfg.EffectiveGRPCTransportMode(),
 		"control_socket_path",
 		cfg.ControlSocketPath,
 		"confirmation_depth",
@@ -79,6 +81,13 @@ func runStart(ctx context.Context, cfg config.Config,
 		"db_path",
 		cfg.DBPath,
 	)
+	if cfg.EffectiveGRPCTransportMode() == config.TransportModeTrustedNetwork {
+		runtimeLogger.Warn(
+			"trusted-network gRPC transport enabled",
+			"warning",
+			"plaintext transport requires operator-controlled network isolation",
+		)
+	}
 
 	db, err := database.NewDbManager(cfg.DBPath, cfg.BlockHeightDatabaseKey, logger)
 	if err != nil {
@@ -112,9 +121,9 @@ func runStart(ctx context.Context, cfg config.Config,
 
 	queryPool, err := pgxpool.New(ctx, postgresURI)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", apperrors.ErrPostgresConfigurationInvalid, err)
 	}
-	runtimeLogger.Info("postgres query pool configured")
+	runtimeLogger.Info("postgres query pool created")
 	defer queryPool.Close()
 
 	client, err := fetchmina.NewMinaClient(
@@ -178,7 +187,6 @@ func runStart(ctx context.Context, cfg config.Config,
 			RetryDelay:   notificationReconnectDelay,
 		}, runtimeLogger)
 		if err != nil {
-			runtimeLogger.Error("indexer run loop stopped with error", "err", err)
 			return err
 		}
 
