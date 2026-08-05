@@ -1,0 +1,12 @@
+.git
+.github
+.cache
+.env
+.env.*
+*.log
+*.out
+archive-wrapper
+coverage*
+tmp
+v2/data
+FLEXIBLE_DEPLOYMENT_REQUIREMENTS.md

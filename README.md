@@ -36,26 +36,32 @@ fields are:
 | `db_path` | Local LevelDB directory. |
 | `grpc_listen_address` | TCP address for the local query server. |
 | `grpc_transport_mode` | `loopback` by default, or explicit `trusted-network`. |
-| `chain_home` | Optional Pulsar home; start/proceed require it from config, CLI, or environment. |
-| `control_socket_path` | Unix socket used by the `stop` command. |
+| `chain_home` | Optional Pulsar home; `run` requires it from config, CLI, or environment. |
+| `control_socket_path` | Unix socket used by the `run` and `stop` commands. |
 | `deployment_metadata_key` | LevelDB key used to store deployment identity. |
 | `deployment_metadata.schema_version` | Stored deployment metadata schema version. |
 | `deployment_metadata.mina_network_id` | Mina network whose archive database is indexed. |
 
-The first start binds the LevelDB database to its schema version, Mina network,
-contract address, and genesis start height. `proceed` requires those values to
-match before connecting to PostgreSQL. To change deployment identity, use a
-new `db_path` and run `start`. The latest cursor is advanced only after a block
-has been fetched successfully; action-bearing blocks are stored before the
-cursor update. A missing best-chain block or a temporary PostgreSQL failure
-leaves the cursor available for retry after restart or reconnection.
+`run` binds a fresh LevelDB database to its schema version, Mina network,
+contract address, and genesis start height. On restart, the same command
+validates that identity and resumes from the persisted cursor. A database with
+mismatched metadata, application state without metadata, malformed metadata or
+cursor data, or a lock held by another process fails before PostgreSQL or gRPC
+is opened. To change deployment identity, use a new `db_path`.
+
+The latest cursor is advanced only after a block has been fetched successfully;
+action-bearing blocks and their cursor are committed atomically. A missing
+best-chain block or a temporary PostgreSQL failure leaves the cursor available
+for retry after restart or reconnection.
 
 ## Build and run
 
 Prefer the Makefile targets for day-to-day use.
 
-Create a local `.env` file in the repository root first. The Makefile includes
-it, and the executable also loads it at runtime.
+For local Makefile usage, values may be placed in a repository-root `.env`
+file. The Makefile includes this file; the executable itself never loads
+`.env`. Container and direct binary deployments must inject environment
+variables through their process environment.
 
 Example:
 
@@ -75,19 +81,27 @@ Build the pure-Go binary with:
 make build
 ```
 
-Start the sidecar by providing the validator chain home:
+Build metadata is embedded from `VERSION`, `COMMIT_SHA`, and the current
+commit timestamp. Inspect it without initializing logging or runtime resources:
 
 ```sh
-make start
+./archive-wrapper version
+```
+
+Run the sidecar. `CHAIN_HOME` is optional when chain home is already supplied by
+`chain_home` or `ARCHIVE_WRAPPER_CHAIN_HOME`:
+
+```sh
+make run CHAIN_HOME=/path/to/validator
 ```
 
 If you want a non-default wrapper config file, pass it explicitly:
 
 ```sh
-make start CONFIG=/path/to/config.yaml
+make run CONFIG=/path/to/config.yaml CHAIN_HOME=/path/to/validator
 ```
 
-`start` reads `bridge.contract_address`, `bridge.confirmation_depth`,
+`run` reads `bridge.contract_address`, `bridge.confirmation_depth`,
 `bridge.start_block_height`, and `bridge.max_block_range` from
 `/path/to/validator/config/genesis.json`, catches up to the archive tip minus
 that depth, and then follows the PostgreSQL `blocks_inserted` notifications.
@@ -97,15 +111,9 @@ cursor. Payload contents, duplicate notifications, and coalesced notifications
 do not determine the indexed range. Query and notification connection failures
 are retried while the process is running.
 
-To resume an existing LevelDB, use:
-
-```sh
-make proceed
-```
-
-`proceed` accepts an existing LevelDB even before its first cursor is written.
-It resumes from the persisted cursor when present, or continues the initial
-sync from the genesis start height when the cursor is still missing.
+The same `make run` command is used for first boot and every restart. It accepts
+an initialized LevelDB even before its first cursor is written, resumes from the
+cursor when present, or continues initial sync from the genesis start height.
 
 Stop the running process through its Unix control socket:
 
@@ -116,23 +124,24 @@ make stop
 If you need a custom config or socket path while stopping:
 
 ```sh
-make stop CONFIG=/path/to/config.yaml SOCKET_PATH=/tmp/archive-wrapper.sock
+make stop CONFIG=/path/to/config.yaml CONTROL_SOCKET_PATH=/tmp/archive-wrapper.sock
 ```
 
 The control socket accepts `PING` (responding with `PONG`) and `STOP`. The
 process also shuts down gracefully on `SIGINT` or `SIGTERM`. The `stop`
-command can use `--control-socket-path` directly (or the legacy
-`--socket-path` alias). Otherwise it resolves the socket from
-`ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH` and then the selected config file.
+command can use `--control-socket-path` directly. Otherwise it resolves the
+socket from `ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH` and then the selected config
+file.
+Shutdown first publishes `NOT_SERVING`, then cancels indexing and closes the
+control listener. gRPC receives a 10-second graceful drain period before active
+RPCs are forcibly stopped; PostgreSQL and LevelDB are closed afterward.
 
 ### Without Makefile
 
 If you need to bypass the Makefile, the equivalent direct commands are:
 
 ```sh
-./archive-wrapper start --config config.yaml --home /path/to/validator
-
-./archive-wrapper proceed --config config.yaml --home /path/to/validator
+./archive-wrapper run --config config.yaml --home /path/to/validator
 
 ./archive-wrapper stop --config config.yaml
 ```
@@ -140,23 +149,43 @@ If you need to bypass the Makefile, the equivalent direct commands are:
 For local development, you can also run the CLI without building first:
 
 ```sh
-go run ./cmd/archive-wrapper start --config config.yaml --home /path/to/validator
+go run ./cmd/archive-wrapper run --config config.yaml --home /path/to/validator
 ```
 
-The executable loads `.env` when present. The supported environment variables
-are:
+The supported process environment variables are:
 
-- `POSTGRES_URI` — archive PostgreSQL connection string; required for `start`
-  and `proceed`.
-- `ARCHIVE_WRAPPER_CONFIG` — default config path for `start`, `proceed`, and
-  `stop`.
-- `ARCHIVE_WRAPPER_CHAIN_HOME` — Pulsar chain home for `start` and `proceed`.
+- `POSTGRES_URI` — archive PostgreSQL connection string; required for `run`.
+- `ARCHIVE_WRAPPER_CONFIG` — default config path for `run` and `stop`.
+- `ARCHIVE_WRAPPER_CHAIN_HOME` — Pulsar chain home for `run`.
 - `ARCHIVE_WRAPPER_GRPC_LISTEN_ADDRESS` — effective gRPC listen address.
 - `ARCHIVE_WRAPPER_GRPC_TRANSPORT_MODE` — effective gRPC transport mode.
 - `ARCHIVE_WRAPPER_DB_PATH` — effective LevelDB path.
 - `ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH` — fallback socket path for `stop`.
-- `ARCHIVE_WRAPPER_LOG_PATH` — append-only log path; defaults to
-  `archive-wrapper.log`.
+- `ARCHIVE_WRAPPER_LOG_PATH` — optional append-only log path. Logs always go to
+  `stderr`; when this value is non-empty they are also written to the selected
+  file. Newly created log files use mode `0600`.
+- `ARCHIVE_WRAPPER_HEALTHCHECK_ADDRESS` — optional explicit target for the
+  short-lived healthcheck command. It takes precedence over the effective gRPC
+  listen address.
+
+## Container image
+
+The repository builds a pinned, multi-stage, non-root image for `linux/amd64`
+and `linux/arm64`. It contains only the statically linked wrapper binary and
+distroless runtime files; config, genesis, database state, `.env` files, and
+credentials must be mounted or injected at runtime.
+
+```sh
+make docker-build
+make docker-build-multiarch
+make docker-inspect
+make docker-test
+```
+
+The image defaults to `run`, handles `SIGTERM`, and includes an exec-form
+healthcheck against `query.Query`. Detailed mount, ownership, read-only
+filesystem, restart, and image update requirements are documented in
+[`docs/container.md`](docs/container.md).
 
 ## gRPC queries
 
@@ -185,12 +214,29 @@ PostgreSQL reconnection. They become `SERVING` only after a successful sync has
 created or recovered the local indexed-height cursor. A successful PostgreSQL
 Ping proves connectivity but does not make the query API ready.
 
+If the current archive target is behind the persisted cursor, the wrapper
+enters `WAITING_FOR_ARCHIVE` and remains `NOT_SERVING`. It never rewinds the
+cursor or deletes indexed data. The supervisor retries until the archive target
+catches up, then restores readiness without requiring a process restart.
+
+The native probe applies the same effective listener configuration as `run`.
+Only `SERVING` exits successfully:
+
+```sh
+./archive-wrapper healthcheck --config config.yaml --timeout 3s
+./archive-wrapper healthcheck --address 127.0.0.1:9095 --timeout 3s
+```
+
+An explicit `--address` does not require a config file. When the configured
+listener is `0.0.0.0` or `[::]`, the probe connects through the corresponding
+loopback address inside the container.
+
 The read-only `diagnostics.DiagnosticsService` remains available while the
 query API is starting or reconnecting. It reports the operational state,
 archive and target heights, indexed height, confirmed lag, and timestamps for
 the latest successful sync and operational error. Supported states are
 `STARTING`, `CONNECTING`, `SYNCING`, `WAITING_FOR_FINALITY`, `READY`,
-`RECONNECTING`, `FAILED`, and `STOPPING`.
+`RECONNECTING`, `WAITING_FOR_ARCHIVE`, `FAILED`, and `STOPPING`.
 
 For example, with the default listen address:
 
@@ -204,8 +250,9 @@ grpcurl -plaintext \
   127.0.0.1:9095 diagnostics.DiagnosticsService/GetStatus
 ```
 
-Health status is advisory and does not reject query RPCs server-side. Clients
-that require readiness gating must check or enable gRPC health checking.
+Query RPCs are rejected with gRPC `Unavailable` whenever `query.Query` is
+`NOT_SERVING`. Health and diagnostics remain available so operators can inspect
+startup, reconnect, archive catch-up, failure, and shutdown states.
 
 ## Development checks
 

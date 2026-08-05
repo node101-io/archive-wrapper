@@ -2,17 +2,18 @@ package database
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
-
-	"github.com/node101-io/archive-wrapper/apperrors"
-
-	"fmt"
+	"syscall"
 
 	actions "github.com/node101-io/archive-wrapper/actions"
+	"github.com/node101-io/archive-wrapper/apperrors"
 
 	proto "github.com/cosmos/gogoproto/proto"
 	"github.com/syndtr/goleveldb/leveldb"
+	leveldbErrors "github.com/syndtr/goleveldb/leveldb/errors"
+	"github.com/syndtr/goleveldb/leveldb/storage"
 )
 
 // DbManager stores indexed block records and cursor metadata in LevelDB.
@@ -33,7 +34,7 @@ func NewDbManager(path, blockHeightDatabaseKey string, logger *slog.Logger) (*Db
 
 	db, err := leveldb.OpenFile(path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("open leveldb: %w", err)
+		return nil, wrapDatabaseError("open leveldb", err)
 	}
 
 	logger.Info("leveldb opened")
@@ -159,9 +160,20 @@ func (manager *DbManager) Get(height int64) (actions.DbRecord, error) {
 	}
 
 	var record actions.DbRecord
-	err = proto.Unmarshal(marshalled, &record)
-	if err != nil {
-		return actions.DbRecord{}, err
+	if err := proto.Unmarshal(marshalled, &record); err != nil {
+		return actions.DbRecord{}, fmt.Errorf("%w: unmarshal block record at height %d: %w", apperrors.ErrDBCorrupt, height, err)
+	}
+	if err := validateRecord(record); err != nil {
+		return actions.DbRecord{}, fmt.Errorf("%w: validate block record at height %d: %w", apperrors.ErrDBCorrupt, height, err)
+	}
+	if record.Key != height {
+		return actions.DbRecord{}, fmt.Errorf(
+			"%w: requested height %d contains record for height %d: %w",
+			apperrors.ErrDBCorrupt,
+			height,
+			record.Key,
+			apperrors.ErrInvalidKey,
+		)
 	}
 
 	if manager.logger != nil {
@@ -169,6 +181,21 @@ func (manager *DbManager) Get(height int64) (actions.DbRecord, error) {
 	}
 
 	return record, nil
+}
+
+func wrapDatabaseError(operation string, err error) error {
+	if errors.Is(err, storage.ErrLocked) ||
+		errors.Is(err, syscall.EWOULDBLOCK) ||
+		errors.Is(err, syscall.EAGAIN) {
+		return fmt.Errorf("%w: %s: %w", apperrors.ErrDBLocked, operation, err)
+	}
+
+	var corrupted *leveldbErrors.ErrCorrupted
+	if errors.As(err, &corrupted) || leveldbErrors.IsCorrupted(err) {
+		return fmt.Errorf("%w: %s: %w", apperrors.ErrDBCorrupt, operation, err)
+	}
+
+	return fmt.Errorf("%s: %w", operation, err)
 }
 
 // InsertBlockHeight advances the latest processed block cursor.
@@ -259,35 +286,6 @@ func (manager *DbManager) GetBlockHeight() (int64, error) {
 	}
 
 	return height, nil
-}
-
-func (manager *DbManager) getEarliestStoredRecordHeight() (int64, bool, error) {
-	iter := manager.db.NewIterator(nil, nil)
-	defer iter.Release()
-
-	cursorKey := []byte(manager.blockHeightDatabaseKey)
-
-	for iter.Next() {
-		key := iter.Key()
-		if len(key) != 8 {
-			continue
-		}
-		if string(key) == string(cursorKey) {
-			continue
-		}
-
-		height, err := decodeBlockHeight(key)
-		if err != nil {
-			return 0, false, err
-		}
-		return height, true, nil
-	}
-
-	if err := iter.Error(); err != nil {
-		return 0, false, fmt.Errorf("iterate stored block records: %w", err)
-	}
-
-	return 0, false, nil
 }
 
 // Close closes the underlying LevelDB handle and marks the manager unusable.

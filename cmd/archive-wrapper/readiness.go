@@ -11,30 +11,40 @@ import (
 
 // readinessController keeps gRPC health and diagnostics transitions consistent.
 type readinessController struct {
-	mu       sync.Mutex
-	health   *grpcHealth.Server
-	store    *diagnostics.Store
-	terminal bool
+	mu        sync.Mutex
+	health    *grpcHealth.Server
+	store     *diagnostics.Store
+	queryGate *queryReadinessGate
+	terminal  bool
 }
 
 // newReadinessController binds both readiness views to one transition owner.
-func newReadinessController(health *grpcHealth.Server, store *diagnostics.Store) *readinessController {
-	return &readinessController{health: health, store: store}
+func newReadinessController(
+	health *grpcHealth.Server,
+	store *diagnostics.Store,
+	queryGate *queryReadinessGate,
+) *readinessController {
+	return &readinessController{health: health, store: store, queryGate: queryGate}
 }
 
 // Connecting marks query traffic unavailable while PostgreSQL is being probed.
 func (c *readinessController) Connecting() {
-	c.transitionUnavailable(diagnostics.OperationalState_OPERATIONAL_STATE_CONNECTING, "")
+	c.transitionUnavailable(diagnostics.StateConnecting, "")
 }
 
 // Reconnecting records a safe connection summary and disables query readiness.
 func (c *readinessController) Reconnecting(summary string) {
-	c.transitionUnavailable(diagnostics.OperationalState_OPERATIONAL_STATE_RECONNECTING, summary)
+	c.transitionUnavailable(diagnostics.StateReconnecting, summary)
+}
+
+// WaitingForArchive records source lag and disables query readiness.
+func (c *readinessController) WaitingForArchive(summary string) {
+	c.transitionUnavailable(diagnostics.StateWaitingForArchive, summary)
 }
 
 // Failed records a non-serving runtime failure.
 func (c *readinessController) Failed(summary string) {
-	c.transitionUnavailable(diagnostics.OperationalState_OPERATIONAL_STATE_FAILED, summary)
+	c.transitionUnavailable(diagnostics.StateFailed, summary)
 }
 
 // Stopping is terminal so late Indexer callbacks cannot restore readiness.
@@ -49,8 +59,9 @@ func (c *readinessController) Stopping() {
 		return
 	}
 	c.terminal = true
+	c.queryGate.setReady(false)
 	c.setQueryServingStatus(grpcHealthV1.HealthCheckResponse_NOT_SERVING)
-	c.store.SetState(diagnostics.OperationalState_OPERATIONAL_STATE_STOPPING, false)
+	c.store.SetState(diagnostics.StateStopping, false)
 }
 
 // OnSyncStarted preserves readiness only for an already initialized incremental sync.
@@ -67,9 +78,10 @@ func (c *readinessController) OnSyncStarted() {
 
 	snapshot := c.store.Snapshot()
 	if !snapshot.Ready {
+		c.queryGate.setReady(false)
 		c.setQueryServingStatus(grpcHealthV1.HealthCheckResponse_NOT_SERVING)
 	}
-	c.store.SetState(diagnostics.OperationalState_OPERATIONAL_STATE_SYNCING, snapshot.Ready)
+	c.store.SetState(diagnostics.StateSyncing, snapshot.Ready)
 }
 
 // OnSyncProgress refreshes diagnostics without changing serving status.
@@ -101,13 +113,15 @@ func (c *readinessController) OnSyncCompleted(progress indexer.SyncProgress) {
 	c.setProgress(progress)
 	c.store.RecordSuccessfulSync()
 	if !progress.Initialized {
+		c.queryGate.setReady(false)
 		c.setQueryServingStatus(grpcHealthV1.HealthCheckResponse_NOT_SERVING)
-		c.store.SetState(diagnostics.OperationalState_OPERATIONAL_STATE_WAITING_FOR_FINALITY, false)
+		c.store.SetState(diagnostics.StateWaitingForFinality, false)
 		return
 	}
 
 	// Complete diagnostics first so a newly serving query never exposes stale status.
-	c.store.SetState(diagnostics.OperationalState_OPERATIONAL_STATE_READY, true)
+	c.store.SetState(diagnostics.StateReady, true)
+	c.queryGate.setReady(true)
 	c.setQueryServingStatus(grpcHealthV1.HealthCheckResponse_SERVING)
 }
 
@@ -123,6 +137,7 @@ func (c *readinessController) transitionUnavailable(state diagnostics.Operationa
 		return
 	}
 
+	c.queryGate.setReady(false)
 	c.setQueryServingStatus(grpcHealthV1.HealthCheckResponse_NOT_SERVING)
 	if summary != "" {
 		c.store.RecordError(summary)

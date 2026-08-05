@@ -15,17 +15,19 @@ import (
 	"github.com/node101-io/archive-wrapper/indexer"
 )
 
-// These defaults bound each probe and pace retries after connection loss.
-const notificationReconnectDelay = 2 * time.Second
+// These defaults bound each probe and pace retryable Indexer failures.
+const indexerRetryDelay = 2 * time.Second
 const postgresProbeTimeout = 5 * time.Second
+
+const archiveSourceBehindSummary = "archive source is behind indexed cursor"
 
 // postgresPinger keeps the reconnect loop independent from pgxpool in tests.
 type postgresPinger interface {
 	Ping(context.Context) error
 }
 
-// reconnectPolicy controls probe deadlines and delay between retryable failures.
-type reconnectPolicy struct {
+// supervisorPolicy controls probe deadlines and delay between retryable failures.
+type supervisorPolicy struct {
 	ProbeTimeout time.Duration
 	RetryDelay   time.Duration
 }
@@ -49,7 +51,7 @@ func superviseIndexer(
 	pinger postgresPinger,
 	session indexerSession,
 	readiness *readinessController,
-	policy reconnectPolicy,
+	policy supervisorPolicy,
 	runtimeLogger *slog.Logger,
 ) error {
 
@@ -75,16 +77,27 @@ func superviseIndexer(
 			return err
 		}
 
-		// Logic and data errors are fatal; only typed connection failures are retried.
-		if !errors.Is(err, apperrors.ErrNotificationConnectionLost) &&
-			!errors.Is(err, apperrors.ErrQueryConnectionLost) {
+		switch {
+		case errors.Is(err, apperrors.ErrArchiveTargetBehindCursor):
+			readiness.WaitingForArchive(archiveSourceBehindSummary)
+			runtimeLogger.Warn(
+				"archive source is behind indexed cursor, waiting",
+				"retry_delay",
+				policy.RetryDelay,
+				"error",
+				err,
+			)
+
+		case errors.Is(err, apperrors.ErrNotificationConnectionLost),
+			errors.Is(err, apperrors.ErrQueryConnectionLost):
+			summary, _ := postgresErrorSummary(err)
+			readiness.Reconnecting(summary)
+			runtimeLogger.Warn("postgres connection lost, reconnecting", "duration", time.Since(attemptStartedAt), "retry_delay", policy.RetryDelay, "error", summary)
+
+		default:
 			readiness.Failed("indexer failed")
 			return err
 		}
-
-		summary, _ := postgresErrorSummary(err)
-		readiness.Reconnecting(summary)
-		runtimeLogger.Warn("postgres connection lost, reconnecting", "duration", time.Since(attemptStartedAt), "retry_delay", policy.RetryDelay, "error", summary)
 
 		select {
 		case <-ctx.Done():
@@ -144,7 +157,7 @@ func connectPostgresNotification(ctx context.Context, postgresURI string) (postg
 
 // closeNotificationConn bounds shutdown so a broken connection cannot block exit.
 func closeNotificationConn(ctx context.Context, conn postgresNotificationConn, logger *slog.Logger) {
-	closeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
 
 	if err := conn.Close(closeCtx); err != nil {

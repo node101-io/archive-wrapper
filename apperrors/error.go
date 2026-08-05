@@ -23,10 +23,14 @@ var (
 	ErrBlockHeightMustBeBiggerThanZero = errors.New("block height must be bigger than zero")
 	// ErrInvalidKey reports that a stored block record key does not match its action heights.
 	ErrInvalidKey = errors.New("invalid key")
-	// ErrDeploymentMetadataMissing reports indexed state that has no deployment identity.
-	ErrDeploymentMetadataMissing = errors.New("deployment metadata is missing")
 	// ErrDeploymentMetadataMismatch reports an attempt to reuse a DB for another deployment.
 	ErrDeploymentMetadataMismatch = errors.New("deployment metadata does not match")
+	// ErrDBLocked reports that another process owns the configured LevelDB.
+	ErrDBLocked = errors.New("database is locked")
+	// ErrDBCorrupt reports malformed or corrupted persisted wrapper state.
+	ErrDBCorrupt = errors.New("database state is corrupt")
+	// ErrDBStateIncomplete reports application data without deployment identity.
+	ErrDBStateIncomplete = errors.New("database state is incomplete")
 )
 
 var (
@@ -62,6 +66,8 @@ var (
 	ErrNilIndexer = errors.New("nil indexer")
 	// ErrBlockHeightRegression reports an attempt to move the latest processed cursor backwards.
 	ErrBlockHeightRegression = errors.New("block height cursor cannot move backwards")
+	// ErrArchiveTargetBehindCursor reports that the current archive source cannot verify the persisted cursor yet.
+	ErrArchiveTargetBehindCursor = errors.New("archive target is behind indexed cursor")
 	// ErrInvalidBlockRange reports that the configured sync range parameters are invalid.
 	ErrInvalidBlockRange = errors.New("invalid block range")
 	// ErrNotificationConnectionLost reports a retryable PostgreSQL LISTEN/NOTIFY connection failure.
@@ -87,8 +93,6 @@ var (
 	ErrBlockHeightDBKeyRequired = errors.New("block_height_database_key is required")
 	// ErrDBPathRequired reports that db_path is missing from config.
 	ErrDBPathRequired = errors.New("db_path is required")
-	// ErrDBAlreadyExists reports that start was asked to use an existing LevelDB path.
-	ErrDBAlreadyExists = errors.New("db already exists")
 	// ErrControlSocketPathRequired reports that the control socket path is missing from config.
 	ErrControlSocketPathRequired = errors.New("control socket path is required")
 	// ErrDeploymentMetadataKeyRequired reports that the deployment metadata key is missing from config.

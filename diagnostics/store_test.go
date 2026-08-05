@@ -16,22 +16,22 @@ func TestStoreTracksStateProgressAndHistory(t *testing.T) {
 	store := newStore(func() time.Time { return now })
 
 	initial := store.Snapshot()
-	require.Equal(t, OperationalState_OPERATIONAL_STATE_STARTING, initial.State)
+	require.Equal(t, StateStarting, initial.State)
 	require.False(t, initial.Ready)
 	require.Equal(t, now, initial.StateSince)
 
 	now = now.Add(time.Second)
-	store.SetState(OperationalState_OPERATIONAL_STATE_STARTING, false)
+	store.SetState(StateStarting, false)
 	require.Equal(t, initial.StateSince, store.Snapshot().StateSince)
 
 	now = now.Add(time.Second)
-	store.SetState(OperationalState_OPERATIONAL_STATE_SYNCING, false)
+	store.SetState(StateSyncing, false)
 	store.SetProgress(true, 10, 45, 13)
 	store.RecordSuccessfulSync()
 	store.RecordError("postgres query connection unavailable")
 
 	snapshot := store.Snapshot()
-	require.Equal(t, OperationalState_OPERATIONAL_STATE_SYNCING, snapshot.State)
+	require.Equal(t, StateSyncing, snapshot.State)
 	require.Equal(t, now, snapshot.StateSince)
 	require.Equal(t, IndexerStatus{
 		Initialized:   true,
@@ -97,7 +97,7 @@ func TestStoreSupportsConcurrentReadersAndWriters(t *testing.T) {
 		go func(height int64) {
 			defer group.Done()
 			store.SetProgress(true, height, height+32, height)
-			store.SetState(OperationalState_OPERATIONAL_STATE_SYNCING, true)
+			store.SetState(StateSyncing, true)
 		}(int64(i + 1))
 		go func() {
 			defer group.Done()

@@ -20,17 +20,23 @@ func TestCloseControlSocketListenerPreservesReplacementSocket(t *testing.T) {
 		_ = os.Remove(socketPath)
 	})
 
-	listener, err := listenControlSocket(socketPath, func() {}, logger)
+	listener, err := net.Listen(network, socketPath)
 	require.NoError(t, err)
 
 	replacement := &replacementListener{Listener: listener, path: socketPath}
+	server := startControlServer(replacement, socketPath, func() {}, logger)
 	t.Cleanup(func() {
 		if replacement.replacement != nil {
 			_ = replacement.replacement.Close()
 		}
 	})
 
-	require.NoError(t, closeControlSocketListener(replacement))
+	require.NoError(t, server.Close())
+	select {
+	case <-server.Done():
+	case <-time.After(time.Second):
+		t.Fatal("control server did not stop")
+	}
 
 	info, err := os.Stat(socketPath)
 	require.NoError(t, err)
@@ -39,6 +45,44 @@ func TestCloseControlSocketListenerPreservesReplacementSocket(t *testing.T) {
 	conn, err := net.DialTimeout(network, socketPath, time.Second)
 	require.NoError(t, err)
 	require.NoError(t, conn.Close())
+}
+
+func TestControlServerCloseIsIdempotentAndRemovesSocket(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	socketPath := filepath.Join(t.TempDir(), "control.sock")
+	server, err := listenControlSocket(socketPath, func() {}, logger)
+	require.NoError(t, err)
+
+	require.NoError(t, server.Close())
+	require.NoError(t, server.Close())
+	select {
+	case <-server.Done():
+	case <-time.After(time.Second):
+		t.Fatal("control server did not stop")
+	}
+	_, err = os.Stat(socketPath)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestControlServerStopCommandCancelsRuntime(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	socketPath := filepath.Join(t.TempDir(), "control.sock")
+	canceled := make(chan struct{})
+	server, err := listenControlSocket(socketPath, func() { close(canceled) }, logger)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, server.Close()) }()
+
+	require.NoError(t, runStop(socketPath, logger))
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("STOP did not cancel the runtime")
+	}
+	select {
+	case <-server.Done():
+	case <-time.After(time.Second):
+		t.Fatal("control server did not finish after STOP")
+	}
 }
 
 type replacementListener struct {

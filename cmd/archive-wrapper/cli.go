@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/node101-io/archive-wrapper/config"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 // run validates command-specific inputs before handing control to the runtime.
@@ -23,10 +21,13 @@ func run(args []string, ctx context.Context, cancel context.CancelFunc, logger *
 	}
 
 	switch strings.ToLower(args[0]) {
-	case "start":
-		cmd := newRuntimeFlagSet("start")
+	case "run":
+		cmd := newRuntimeFlagSet("run")
 		if err := cmd.Parse(args[1:]); err != nil {
 			return err
+		}
+		if cmd.NArg() != 0 {
+			return fmt.Errorf("run does not accept positional arguments: %q", cmd.Args())
 		}
 		configPath, err := resolveConfigPath(cmd.FlagSet, *cmd.configPath)
 		if err != nil {
@@ -37,75 +38,37 @@ func run(args []string, ctx context.Context, cancel context.CancelFunc, logger *
 			return err
 		}
 
-		cliLogger.Info("start command received", "config", configPath, "home", cfg.ChainHome)
-		if err := ensureDBPathDoesNotExist(cfg.DBPath); err != nil {
-			return err
-		}
-
-		bridgeParams, err := loadBridgeParamsFromHome(cfg.ChainHome)
+		params, err := loadBridgeParamsFromHome(cfg.ChainHome)
 		if err != nil {
 			return fmt.Errorf("load bridge params from genesis: %w", err)
 		}
-		return runStart(ctx, cfg, bridgeParams, cancel, logger)
 
-	case "proceed":
-		cmd := newRuntimeFlagSet("proceed")
-		if err := cmd.Parse(args[1:]); err != nil {
-			return err
-		}
-		configPath, err := resolveConfigPath(cmd.FlagSet, *cmd.configPath)
-		if err != nil {
-			return err
-		}
-		cfg, err := config.Resolve(configPath, cmd.overrides())
-		if err != nil {
-			return err
+		postgresURI := strings.TrimSpace(os.Getenv("POSTGRES_URI"))
+		if postgresURI == "" {
+			return apperrors.ErrPostgresURIRequired
 		}
 
-		if _, err := os.Stat(cfg.DBPath); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("db does not exist: %s; run start first", cfg.DBPath)
-			}
-			return fmt.Errorf("stat db path: %w", err)
-		}
-
-		latestProcessedBlockHeight, err := loadLatestProcessedBlockHeight(
-			cfg.DBPath,
-			cfg.BlockHeightDatabaseKey,
-			logger,
-		)
-		if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
-			return fmt.Errorf("load latest processed block height: %w", err)
-		}
-
-		cliLogger.Info("proceed command received", "config", configPath, "home", cfg.ChainHome)
-		if errors.Is(err, leveldb.ErrNotFound) {
-			cliLogger.Info("resuming before first cursor", "db_path", cfg.DBPath)
-		} else {
-			cliLogger.Info("resuming from persisted block height", "block_height", latestProcessedBlockHeight, "db_path", cfg.DBPath)
-		}
-
-		bridgeParams, err := loadBridgeParamsFromHome(cfg.ChainHome)
-		if err != nil {
-			return fmt.Errorf("load bridge params from genesis: %w", err)
-		}
-		return runStart(ctx, cfg, bridgeParams, cancel, logger)
+		cliLogger.Info("run command received", "config", configPath, "home", cfg.ChainHome)
+		return runRuntime(ctx, runtimeInputs{
+			Config:       cfg,
+			BridgeParams: params,
+			PostgresURI:  postgresURI,
+		}, cancel, logger)
 
 	case "stop":
 		cmd := flag.NewFlagSet("stop", flag.ContinueOnError)
 		configPath := cmd.String("config", "", "path to configuration file")
-		legacySocketPath := cmd.String("socket-path", "", "legacy path to control socket")
 		controlSocketPath := cmd.String("control-socket-path", "", "path to control socket")
 		if err := cmd.Parse(args[1:]); err != nil {
 			return err
 		}
-		if flagWasSet(cmd, "socket-path") && flagWasSet(cmd, "control-socket-path") {
-			return fmt.Errorf("--socket-path and --control-socket-path cannot be used together")
+		if cmd.NArg() != 0 {
+			return fmt.Errorf("stop does not accept positional arguments: %q", cmd.Args())
 		}
 
 		resolvedSocketPath, err := resolveStopSocketPath(
-			firstVisitedSocketPath(cmd, *legacySocketPath, *controlSocketPath),
-			flagWasSet(cmd, "socket-path") || flagWasSet(cmd, "control-socket-path"),
+			*controlSocketPath,
+			flagWasSet(cmd, "control-socket-path"),
 			*configPath,
 			flagWasSet(cmd, "config"),
 		)
@@ -159,9 +122,10 @@ func (f *runtimeFlagSet) overrides() config.Overrides {
 
 func usage() string {
 	return `usage:
-  archive-wrapper start [--config <path>] [--home <path>] [runtime overrides]
-  archive-wrapper proceed [--config <path>] [--home <path>] [runtime overrides]
+  archive-wrapper run [--config <path>] [--home <path>] [runtime overrides]
   archive-wrapper stop [--config <path>] [--control-socket-path <path>]
+  archive-wrapper healthcheck [--config <path>] [--address <host:port>] [--timeout <duration>]
+  archive-wrapper version
 `
 }
 
@@ -196,11 +160,4 @@ func resolveConfigPath(fs *flag.FlagSet, flagValue string) (string, error) {
 		return strings.TrimSpace(value), nil
 	}
 	return "", apperrors.ErrConfigPathRequired
-}
-
-func firstVisitedSocketPath(fs *flag.FlagSet, legacy, canonical string) string {
-	if flagWasSet(fs, "socket-path") {
-		return legacy
-	}
-	return canonical
 }

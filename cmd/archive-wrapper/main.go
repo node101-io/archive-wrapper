@@ -9,60 +9,50 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+)
 
-	"github.com/joho/godotenv"
+const (
+	exitCodeSuccess = 0
+	exitCodeFailure = 1
 )
 
 func main() {
-	os.Exit(mainExitCode())
+	os.Exit(runMain(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func mainExitCode() int {
-	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
-		_, _ = fmt.Fprintf(os.Stderr, "failed to load environment file: %v\n", err)
-		return 1
+func runMain(args []string, stdout, stderr io.Writer) (exitCode int) {
+	if handled, code := runShortCommand(args, stdout, stderr, os.LookupEnv); handled {
+		return code
 	}
 
-	logPath := os.Getenv("ARCHIVE_WRAPPER_LOG_PATH")
-	if logPath == "" {
-		logPath = "archive-wrapper.log"
-	}
-
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	logger, cleanup, err := newRuntimeLogger(stderr, os.LookupEnv)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "failed to open log file %s: %v\n", logPath, err)
-		return 1
+		if stderr != nil {
+			_, _ = fmt.Fprintf(stderr, "failed to initialize logger: %v\n", err)
+		}
+		return exitCodeFailure
 	}
-
-	logger := slog.New(
-		slog.NewTextHandler(
-			io.MultiWriter(os.Stdout, logFile),
-			&slog.HandlerOptions{Level: slog.LevelInfo},
-		),
-	)
+	logger = logger.With("version", version, "commit", commitSHA, "build_date", buildDate)
 	slog.SetDefault(logger)
+	exitCode = exitCodeSuccess
 	defer func() {
-		if err := logFile.Close(); err != nil {
-			logger.Error("failed to close log file", "log_path", logPath, "err", err)
+		if err := cleanup(); err != nil {
+			logger.Error("failed to close log file", "error", err)
+			exitCode = exitCodeFailure
 		}
 	}()
 
-	logger.Info("logger initialized", "log_path", logPath)
-
-	// allows to close the wrapper via CTRL + C
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	// Allows graceful shutdown with cli command
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
 	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	logger.Info("archive-wrapper process started")
-
-	if err := run(os.Args[1:], ctx, cancel, logger); err != nil && !errors.Is(err, context.Canceled) {
+	if err := run(args, ctx, cancel, logger); err != nil && !errors.Is(err, context.Canceled) {
 		logApplicationError(logger, "archive-wrapper process failed", err)
-		return 1
+		return exitCodeFailure
 	}
 
 	logger.Info("archive-wrapper process stopped")
-	return 0
+	return exitCodeSuccess
 }

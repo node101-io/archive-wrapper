@@ -34,7 +34,7 @@ func newStore(now func() time.Time) *Store {
 	return &Store{
 		now: now,
 		snapshot: Snapshot{
-			State:      OperationalState_OPERATIONAL_STATE_STARTING,
+			State:      StateStarting,
 			StateSince: startedAt,
 		},
 	}

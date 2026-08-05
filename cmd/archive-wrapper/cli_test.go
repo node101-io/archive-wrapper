@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +12,69 @@ import (
 	"github.com/node101-io/archive-wrapper/apperrors"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRunCommandRejectsMissingPostgresBeforeDatabaseCreation(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "wrapper-db")
+	controlSocketPath := filepath.Join(root, "control.sock")
+	homePath := filepath.Join(root, "chain-home")
+	writeGenesis(t, homePath, testGenesisJSON())
+	configPath := writeRuntimeConfig(t, dbPath, controlSocketPath)
+	t.Setenv("POSTGRES_URI", "")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := run(
+		[]string{"run", "--config", configPath, "--home", homePath},
+		ctx,
+		cancel,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	require.ErrorIs(t, err, apperrors.ErrPostgresURIRequired)
+
+	_, err = os.Stat(dbPath)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(controlSocketPath)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestRemovedLifecycleCommandsAreRejected(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, command := range []string{"start", "proceed"} {
+		t.Run(command, func(t *testing.T) {
+			err := run([]string{command}, context.Background(), func() {}, logger)
+			require.ErrorContains(t, err, "unknown command")
+		})
+	}
+}
+
+func TestCommandsRejectUnexpectedArguments(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "run", args: []string{"run", "unexpected"}},
+		{name: "stop", args: []string{"stop", "unexpected"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := run(tt.args, context.Background(), func() {}, logger)
+			require.ErrorContains(t, err, "does not accept positional arguments")
+		})
+	}
+}
+
+func TestStopRejectsLegacySocketPathFlag(t *testing.T) {
+	err := run(
+		[]string{"stop", "--socket-path", "/tmp/wrapper.sock"},
+		context.Background(),
+		func() {},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	require.ErrorContains(t, err, "flag provided but not defined")
+}
 
 func TestResolveConfigPathPrecedence(t *testing.T) {
 	tests := []struct {
@@ -99,6 +165,39 @@ deployment_metadata:
 `)
 	require.NoError(t, os.WriteFile(configPath, contents, 0o600))
 	return configPath
+}
+
+func writeRuntimeConfig(t *testing.T, dbPath, socketPath string) string {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	contents := []byte(`
+block_height_database_key: "archive-wrapper"
+db_path: "` + dbPath + `"
+grpc_listen_address: "127.0.0.1:9095"
+grpc_transport_mode: "loopback"
+control_socket_path: "` + socketPath + `"
+deployment_metadata_key: "archive-wrapper:deployment"
+deployment_metadata:
+  schema_version: 1
+  mina_network_id: "testnet"
+`)
+	require.NoError(t, os.WriteFile(configPath, contents, 0o600))
+	return configPath
+}
+
+func testGenesisJSON() string {
+	return `{
+  "app_state": {
+    "bridge": {
+      "params": {
+        "confirmation_depth": "32",
+        "contract_address": "` + testBridgeContractAddress + `",
+        "start_block_height": "537276",
+        "max_block_range": "1000"
+      }
+    }
+  }
+}`
 }
 
 func unsetEnvironment(t *testing.T, key string) {

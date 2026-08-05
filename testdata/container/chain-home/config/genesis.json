@@ -1,0 +1,12 @@
+{
+  "app_state": {
+    "bridge": {
+      "params": {
+        "confirmation_depth": "2",
+        "contract_address": "B62qjRDirGFRf5dvNcGzMs5oWzQ2VyNcygnoKM2MkxB9PFUp7Utdraf",
+        "start_block_height": "10",
+        "max_block_range": "100"
+      }
+    }
+  }
+}

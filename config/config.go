@@ -38,7 +38,7 @@ type Config struct {
 	GRPCListenAddress string `mapstructure:"grpc_listen_address"`
 	// GRPCTransportMode selects the bind policy for the plaintext gRPC server.
 	GRPCTransportMode TransportMode `mapstructure:"grpc_transport_mode"`
-	// ControlSocketPath is the unix socket path used by start and stop commands.
+	// ControlSocketPath is the unix socket path used by run and stop commands.
 	ControlSocketPath string `mapstructure:"control_socket_path"`
 	// DeploymentMetadataKey stores deployment identity in LevelDB.
 	DeploymentMetadataKey string `mapstructure:"deployment_metadata_key"`
@@ -66,6 +66,30 @@ func Load(configFile string) (Config, error) {
 // in the resulting runtime configuration.
 func Resolve(configFile string, overrides Overrides) (Config, error) {
 	return resolve(configFile, overrides, os.LookupEnv, true)
+}
+
+// ResolveGRPCListenAddress resolves only the effective gRPC listener settings.
+// Short-lived probes use this path without requiring chain or database inputs.
+func ResolveGRPCListenAddress(configFile string) (string, error) {
+	if strings.TrimSpace(configFile) == "" {
+		return "", apperrors.ErrConfigPathRequired
+	}
+
+	cfg, err := decode(configFile)
+	if err != nil {
+		return "", err
+	}
+	applyDefaults(&cfg)
+	applyEnvironment(&cfg, os.LookupEnv)
+	normalize(&cfg)
+
+	if cfg.GRPCListenAddress == "" {
+		return "", apperrors.ErrGRPCAddressRequired
+	}
+	if err := validateGRPCListenAddress(cfg.GRPCListenAddress, cfg.EffectiveGRPCTransportMode()); err != nil {
+		return "", err
+	}
+	return cfg.GRPCListenAddress, nil
 }
 
 type lookupEnv func(string) (string, bool)

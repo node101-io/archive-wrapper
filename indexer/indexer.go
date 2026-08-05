@@ -159,6 +159,15 @@ func (indexer *Indexer) syncTo(
 	}
 	indexer.observer.OnSyncProgress(progress)
 
+	if exists && cursor > target {
+		return fmt.Errorf(
+			"%w: cursor=%d target=%d",
+			apperrors.ErrArchiveTargetBehindCursor,
+			cursor,
+			target,
+		)
+	}
+
 	if target <= cursor {
 		indexer.logger.InfoContext(ctx, "sync already up to date", "cursor", cursor, "target", target)
 		indexer.observer.OnSyncCompleted(progress)

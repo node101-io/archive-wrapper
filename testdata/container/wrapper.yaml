@@ -1,0 +1,9 @@
+block_height_database_key: "archive-wrapper"
+db_path: "/var/lib/archive-wrapper/data/leveldb"
+grpc_listen_address: "0.0.0.0:9095"
+grpc_transport_mode: "trusted-network"
+control_socket_path: "/run/archive-wrapper/control.sock"
+deployment_metadata_key: "archive-wrapper:deployment"
+deployment_metadata:
+  schema_version: 1
+  mina_network_id: "container-testnet"
