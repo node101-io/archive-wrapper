@@ -10,7 +10,7 @@ import (
 func TestActionProtoRoundTrip(t *testing.T) {
 	want := &Action{
 		BlockHeight: 42,
-		XCoordinate: []byte("alice-x"),
+		XCoordinate: append(make([]byte, 31), 1),
 		IsOdd:       true,
 		ActionType:  ActionType_DEPOSIT,
 		Amount:      99,
@@ -30,7 +30,7 @@ func TestDbRecordProtoRoundTrip(t *testing.T) {
 		Actions: []*Action{
 			{
 				BlockHeight: 7,
-				XCoordinate: []byte("alice-x"),
+				XCoordinate: append(make([]byte, 31), 1),
 				IsOdd:       true,
 				ActionType:  ActionType_WITHDRAW,
 				Amount:      11,

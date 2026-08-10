@@ -1,11 +1,13 @@
 package database
 
 import (
+	"bytes"
 	"encoding/binary"
 
 	cosmosErrors "cosmossdk.io/errors"
 	actions "github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
+	minafield "github.com/node101-io/mina-signer-go/field"
 )
 
 func encodeBlockHeight(height int64) []byte {
@@ -48,6 +50,11 @@ func validateRecord(record actions.DbRecord) error {
 
 		if len(act.XCoordinate) == 0 {
 			return apperrors.ErrEmptyXCoordinate
+		}
+
+		fieldElement, err := minafield.NewFieldElement(act.XCoordinate)
+		if err != nil || !bytes.Equal(fieldElement.Bytes(), act.XCoordinate) {
+			return cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid x coordinate")
 		}
 	}
 

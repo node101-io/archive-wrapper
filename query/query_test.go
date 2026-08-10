@@ -34,7 +34,7 @@ func TestQuery(t *testing.T) {
 		Actions: []*actions.Action{
 			{
 				BlockHeight: 7,
-				XCoordinate: []byte("alice-x"),
+				XCoordinate: append(make([]byte, 31), 1),
 				IsOdd:       true,
 				ActionType:  actions.ActionType_DEPOSIT,
 				Amount:      42,
@@ -46,7 +46,7 @@ func TestQuery(t *testing.T) {
 		Actions: []*actions.Action{
 			{
 				BlockHeight: 9,
-				XCoordinate: []byte("bob-x"),
+				XCoordinate: append(make([]byte, 31), 1),
 				IsOdd:       false,
 				ActionType:  actions.ActionType_WITHDRAW,
 				Amount:      7,

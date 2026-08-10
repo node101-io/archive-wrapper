@@ -40,8 +40,8 @@ func TestNewIndexerRejectsNilConnection(t *testing.T) {
 
 func TestIndexActionsBuildsRecord(t *testing.T) {
 	items := []actions.Action{
-		{BlockHeight: 7, XCoordinate: []byte("alice-x"), IsOdd: true, ActionType: actions.ActionType_DEPOSIT, Amount: 5},
-		{BlockHeight: 7, XCoordinate: []byte("bob-x"), IsOdd: false, ActionType: actions.ActionType_WITHDRAW, Amount: 3},
+		{BlockHeight: 7, XCoordinate: append(make([]byte, 31), 1), IsOdd: true, ActionType: actions.ActionType_DEPOSIT, Amount: 5},
+		{BlockHeight: 7, XCoordinate: append(make([]byte, 31), 1), IsOdd: false, ActionType: actions.ActionType_WITHDRAW, Amount: 3},
 	}
 
 	record, err := IndexActions(items, 7)
@@ -49,9 +49,9 @@ func TestIndexActionsBuildsRecord(t *testing.T) {
 
 	require.Equal(t, int64(7), record.Key)
 	require.Len(t, record.Actions, 2)
-	require.Equal(t, []byte("alice-x"), record.Actions[0].XCoordinate)
+	require.Equal(t, append(make([]byte, 31), 1), record.Actions[0].XCoordinate)
 	require.True(t, record.Actions[0].IsOdd)
-	require.Equal(t, []byte("bob-x"), record.Actions[1].XCoordinate)
+	require.Equal(t, append(make([]byte, 31), 1), record.Actions[1].XCoordinate)
 	require.False(t, record.Actions[1].IsOdd)
 }
 
@@ -107,7 +107,7 @@ func TestRunReconcilesAuthoritativeTipForDuplicateAndOutOfOrderNotificationPaylo
 		Key: 68,
 		Actions: []*actions.Action{{
 			BlockHeight: 68,
-			XCoordinate: []byte("persisted-x"),
+			XCoordinate: append(make([]byte, 31), 1),
 			IsOdd:       true,
 			ActionType:  actions.ActionType_DEPOSIT,
 			Amount:      42,
