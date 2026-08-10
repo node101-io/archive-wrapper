@@ -52,11 +52,14 @@ func (ActionType) EnumDescriptor() ([]byte, []int) {
 }
 
 type Action struct {
-	BlockHeight int64      `protobuf:"varint,1,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
-	XCoordinate []byte     `protobuf:"bytes,2,opt,name=x_coordinate,json=xCoordinate,proto3" json:"x_coordinate,omitempty"`
-	IsOdd       bool       `protobuf:"varint,3,opt,name=is_odd,json=isOdd,proto3" json:"is_odd,omitempty"`
-	ActionType  ActionType `protobuf:"varint,4,opt,name=action_type,json=actionType,proto3,enum=actions.ActionType" json:"action_type,omitempty"`
-	Amount      int64      `protobuf:"varint,5,opt,name=amount,proto3" json:"amount,omitempty"`
+	BlockHeight int64 `protobuf:"varint,1,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
+	// x_coordinate is the account's affine Pallas x-coordinate encoded as a
+	// 32-byte canonical big-endian field element.
+	XCoordinate []byte `protobuf:"bytes,2,opt,name=x_coordinate,json=xCoordinate,proto3" json:"x_coordinate,omitempty"`
+	// is_odd selects the affine y-coordinate with odd parity.
+	IsOdd      bool       `protobuf:"varint,3,opt,name=is_odd,json=isOdd,proto3" json:"is_odd,omitempty"`
+	ActionType ActionType `protobuf:"varint,4,opt,name=action_type,json=actionType,proto3,enum=actions.ActionType" json:"action_type,omitempty"`
+	Amount     int64      `protobuf:"varint,5,opt,name=amount,proto3" json:"amount,omitempty"`
 }
 
 func (m *Action) Reset()         { *m = Action{} }
