@@ -1,6 +1,7 @@
 package fetchmina
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -289,7 +290,8 @@ func fieldBytesFromDecimal(s string) ([]byte, error) {
 	b := make([]byte, size)
 	copy(b[size-len(raw):], raw)
 
-	if _, err := minafield.NewFieldElement(b); err != nil {
+	fieldElement, err := minafield.NewFieldElement(b)
+	if err != nil || !bytes.Equal(fieldElement.Bytes(), b) {
 		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account x_coordinate")
 	}
 

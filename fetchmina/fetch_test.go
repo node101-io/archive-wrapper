@@ -18,6 +18,12 @@ import (
 
 const validAddress = "B62qjTpSX2R4fyqJrC9pzvm5PSZb5GMaYBXh8di3TBn6pPC9XXYFC9k"
 
+const (
+	pallasBaseFieldModulus         = "28948022309329048855892746252171976963363056481941560715954676764349967630337"
+	pallasBaseFieldModulusMinusOne = "28948022309329048855892746252171976963363056481941560715954676764349967630336"
+	integerAboveFieldByteSize      = "115792089237316195423570985008687907853269984665640564039457584007913129639936"
+)
+
 func TestNewMinaClientRejectsNilQueries(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -41,15 +47,131 @@ func TestNewMinaClientRejectsInvalidContractAddress(t *testing.T) {
 }
 
 func TestActionFromRawDataBuildsAction(t *testing.T) {
-	action, err := actionFromRawData(99, []string{"1", "7", "1", "42"})
-	require.NoError(t, err)
-	require.NotNil(t, action)
+	tests := []struct {
+		name       string
+		data       []string
+		actionType actions.ActionType
+		isOdd      bool
+	}{
+		{name: "deposit", data: []string{"1", "7", "1", "42"}, actionType: actions.ActionType_DEPOSIT, isOdd: true},
+		{name: "withdraw", data: []string{"2", "7", "0", "42"}, actionType: actions.ActionType_WITHDRAW, isOdd: false},
+	}
 
-	require.Equal(t, int64(99), action.BlockHeight)
-	require.Equal(t, actions.ActionType_DEPOSIT, action.ActionType)
-	require.Equal(t, int64(42), action.Amount)
-	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7}, action.XCoordinate)
-	require.True(t, action.IsOdd)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			action, err := actionFromRawData(99, tt.data)
+			require.NoError(t, err)
+			require.NotNil(t, action)
+
+			require.Equal(t, int64(99), action.BlockHeight)
+			require.Equal(t, tt.actionType, action.ActionType)
+			require.Equal(t, int64(42), action.Amount)
+			require.Equal(t, append(make([]byte, 31), 7), action.XCoordinate)
+			require.Equal(t, tt.isOdd, action.IsOdd)
+		})
+	}
+}
+
+func TestFieldBytesFromDecimal(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "zero", value: "0"},
+		{name: "small value", value: "7"},
+		{name: "largest canonical value", value: pallasBaseFieldModulusMinusOne},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fieldBytesFromDecimal(tt.value)
+			require.NoError(t, err)
+			require.Len(t, got, 32)
+		})
+	}
+}
+
+func TestFieldBytesFromDecimalRejectsInvalidValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "empty", value: ""},
+		{name: "malformed", value: "not-a-number"},
+		{name: "negative", value: "-1"},
+		{name: "field modulus", value: pallasBaseFieldModulus},
+		{name: "above field byte size", value: integerAboveFieldByteSize},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fieldBytesFromDecimal(tt.value)
+
+			require.Nil(t, got)
+			require.ErrorIs(t, err, apperrors.ErrInvalidActionData)
+		})
+	}
+}
+
+func TestParseIsOddField(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "even", value: "0", want: false},
+		{name: "odd", value: "1", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseIsOddField(tt.value)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestParseIsOddFieldRejectsInvalidValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "empty", value: ""},
+		{name: "negative", value: "-1"},
+		{name: "greater than one", value: "2"},
+		{name: "boolean text", value: "true"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseIsOddField(tt.value)
+
+			require.False(t, got)
+			require.ErrorIs(t, err, apperrors.ErrInvalidActionData)
+		})
+	}
+}
+
+func TestActionFromRawDataRejectsInvalidFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    []string
+		wantErr error
+	}{
+		{name: "missing fields", data: []string{"1", "7"}, wantErr: apperrors.ErrInvalidActionData},
+		{name: "invalid x coordinate", data: []string{"1", pallasBaseFieldModulus, "1", "42"}, wantErr: apperrors.ErrInvalidActionData},
+		{name: "invalid parity", data: []string{"1", "7", "2", "42"}, wantErr: apperrors.ErrInvalidActionData},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			action, err := actionFromRawData(99, tt.data)
+
+			require.Nil(t, action)
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
 }
 
 func TestGetMinaBlockHeightWrapsRetryableQueryErrors(t *testing.T) {
