@@ -17,6 +17,7 @@ import (
 )
 
 func TestHealthDialAddress(t *testing.T) {
+	clearCommandEnvironment(t)
 	tests := []struct {
 		name    string
 		address string
@@ -46,6 +47,7 @@ func TestHealthDialAddress(t *testing.T) {
 }
 
 func TestResolveHealthcheckAddressPrecedence(t *testing.T) {
+	clearCommandEnvironment(t)
 	configPath := writeHealthcheckConfig(t, "127.0.0.1:9001")
 	lookup := mapLookup(map[string]string{
 		"ARCHIVE_WRAPPER_CONFIG":              configPath,
@@ -66,6 +68,7 @@ func TestResolveHealthcheckAddressPrecedence(t *testing.T) {
 }
 
 func TestResolveHealthcheckAddressUsesRuntimeEnvironment(t *testing.T) {
+	clearCommandEnvironment(t)
 	configPath := writeHealthcheckConfig(t, "127.0.0.1:9001")
 	t.Setenv("ARCHIVE_WRAPPER_GRPC_LISTEN_ADDRESS", "0.0.0.0:9004")
 	t.Setenv("ARCHIVE_WRAPPER_GRPC_TRANSPORT_MODE", "trusted-network")
@@ -76,6 +79,7 @@ func TestResolveHealthcheckAddressUsesRuntimeEnvironment(t *testing.T) {
 }
 
 func TestResolveHealthcheckAddressRejectsEmptyExplicitValues(t *testing.T) {
+	clearCommandEnvironment(t)
 	_, err := resolveHealthcheckAddress("", true, "unused", true, mapLookup(nil))
 	require.ErrorIs(t, err, apperrors.ErrGRPCAddressRequired)
 
@@ -89,6 +93,7 @@ func TestResolveHealthcheckAddressRejectsEmptyExplicitValues(t *testing.T) {
 }
 
 func TestCheckQueryHealth(t *testing.T) {
+	clearCommandEnvironment(t)
 	tests := []struct {
 		name    string
 		status  grpcHealthV1.HealthCheckResponse_ServingStatus
@@ -116,12 +121,14 @@ func TestCheckQueryHealth(t *testing.T) {
 }
 
 func TestCheckQueryHealthFailsForUnavailableTarget(t *testing.T) {
+	clearCommandEnvironment(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	require.Error(t, checkQueryHealth(ctx, "127.0.0.1:1"))
 }
 
 func TestRunMainHealthcheckDoesNotInitializeRuntimeLogger(t *testing.T) {
+	clearCommandEnvironment(t)
 	logPath := filepath.Join(t.TempDir(), "healthcheck.log")
 	t.Setenv("ARCHIVE_WRAPPER_LOG_PATH", logPath)
 	var stderr bytes.Buffer
@@ -137,6 +144,7 @@ func TestRunMainHealthcheckDoesNotInitializeRuntimeLogger(t *testing.T) {
 }
 
 func TestRunHealthcheckRejectsNonPositiveTimeout(t *testing.T) {
+	clearCommandEnvironment(t)
 	err := runHealthcheckCommand([]string{"--address", "127.0.0.1:9095", "--timeout", "0s"}, mapLookup(nil))
 	require.ErrorContains(t, err, "greater than zero")
 }

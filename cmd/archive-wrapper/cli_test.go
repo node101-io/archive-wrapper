@@ -14,6 +14,7 @@ import (
 )
 
 func TestRunCommandRejectsMissingPostgresBeforeDatabaseCreation(t *testing.T) {
+	clearCommandEnvironment(t)
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "wrapper-db")
 	controlSocketPath := filepath.Join(root, "control.sock")
@@ -39,6 +40,7 @@ func TestRunCommandRejectsMissingPostgresBeforeDatabaseCreation(t *testing.T) {
 }
 
 func TestRemovedLifecycleCommandsAreRejected(t *testing.T) {
+	clearCommandEnvironment(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, command := range []string{"start", "proceed"} {
 		t.Run(command, func(t *testing.T) {
@@ -49,6 +51,7 @@ func TestRemovedLifecycleCommandsAreRejected(t *testing.T) {
 }
 
 func TestCommandsRejectUnexpectedArguments(t *testing.T) {
+	clearCommandEnvironment(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	tests := []struct {
 		name string
@@ -67,6 +70,7 @@ func TestCommandsRejectUnexpectedArguments(t *testing.T) {
 }
 
 func TestStopRejectsLegacySocketPathFlag(t *testing.T) {
+	clearCommandEnvironment(t)
 	err := run(
 		[]string{"stop", "--socket-path", "/tmp/wrapper.sock"},
 		context.Background(),
@@ -77,6 +81,7 @@ func TestStopRejectsLegacySocketPathFlag(t *testing.T) {
 }
 
 func TestResolveConfigPathPrecedence(t *testing.T) {
+	clearCommandEnvironment(t)
 	tests := []struct {
 		name    string
 		args    []string
@@ -114,6 +119,7 @@ func TestResolveConfigPathPrecedence(t *testing.T) {
 }
 
 func TestResolveStopSocketPathPrecedence(t *testing.T) {
+	clearCommandEnvironment(t)
 	configPath := writeStopConfig(t, "/tmp/config.sock")
 
 	t.Run("cli_over_environment_and_config", func(t *testing.T) {
@@ -215,4 +221,29 @@ func unsetEnvironment(t *testing.T, key string) {
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func clearCommandEnvironment(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"ARCHIVE_WRAPPER_CONFIG",
+		"ARCHIVE_WRAPPER_CHAIN_HOME",
+		"ARCHIVE_WRAPPER_DB_PATH",
+		"ARCHIVE_WRAPPER_GRPC_LISTEN_ADDRESS",
+		"ARCHIVE_WRAPPER_GRPC_TRANSPORT_MODE",
+		"ARCHIVE_WRAPPER_CONTROL_SOCKET_PATH",
+		"ARCHIVE_WRAPPER_HEALTHCHECK_ADDRESS",
+		"ARCHIVE_WRAPPER_LOG_PATH",
+		"POSTGRES_URI",
+	} {
+		oldValue, wasSet := os.LookupEnv(key)
+		require.NoError(t, os.Unsetenv(key))
+		t.Cleanup(func() {
+			if wasSet {
+				require.NoError(t, os.Setenv(key, oldValue))
+				return
+			}
+			require.NoError(t, os.Unsetenv(key))
+		})
+	}
 }

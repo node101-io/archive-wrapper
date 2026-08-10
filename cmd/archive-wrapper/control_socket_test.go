@@ -15,10 +15,7 @@ import (
 
 func TestCloseControlSocketListenerPreservesReplacementSocket(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	socketPath := filepath.Join("/tmp", fmt.Sprintf("archive-wrapper-%d.sock", time.Now().UnixNano()))
-	t.Cleanup(func() {
-		_ = os.Remove(socketPath)
-	})
+	socketPath := testSocketPath(t, "replacement")
 
 	listener, err := net.Listen(network, socketPath)
 	require.NoError(t, err)
@@ -49,7 +46,7 @@ func TestCloseControlSocketListenerPreservesReplacementSocket(t *testing.T) {
 
 func TestControlServerCloseIsIdempotentAndRemovesSocket(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	socketPath := filepath.Join(t.TempDir(), "control.sock")
+	socketPath := testSocketPath(t, "close")
 	server, err := listenControlSocket(socketPath, func() {}, logger)
 	require.NoError(t, err)
 
@@ -66,7 +63,7 @@ func TestControlServerCloseIsIdempotentAndRemovesSocket(t *testing.T) {
 
 func TestControlServerStopCommandCancelsRuntime(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	socketPath := filepath.Join(t.TempDir(), "control.sock")
+	socketPath := testSocketPath(t, "stop")
 	canceled := make(chan struct{})
 	server, err := listenControlSocket(socketPath, func() { close(canceled) }, logger)
 	require.NoError(t, err)
@@ -102,4 +99,15 @@ func (l *replacementListener) Close() error {
 	}
 	l.replacement = replacement
 	return nil
+}
+
+func testSocketPath(t *testing.T, prefix string) string {
+	t.Helper()
+
+	socketPath := filepath.Join("/tmp", fmt.Sprintf("archive-wrapper-%s-%d.sock", prefix, time.Now().UnixNano()))
+	t.Cleanup(func() {
+		_ = os.Remove(socketPath)
+	})
+
+	return socketPath
 }

@@ -41,14 +41,15 @@ func TestNewMinaClientRejectsInvalidContractAddress(t *testing.T) {
 }
 
 func TestActionFromRawDataBuildsAction(t *testing.T) {
-	action, err := actionFromRawData(99, validAddress, []string{"1", "ignored", "ignored", "42"})
+	action, err := actionFromRawData(99, []string{"1", "7", "1", "42"})
 	require.NoError(t, err)
 	require.NotNil(t, action)
 
 	require.Equal(t, int64(99), action.BlockHeight)
 	require.Equal(t, actions.ActionType_DEPOSIT, action.ActionType)
 	require.Equal(t, int64(42), action.Amount)
-	require.NotEmpty(t, action.FeePayer)
+	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7}, action.XCoordinate)
+	require.True(t, action.IsOdd)
 }
 
 func TestGetMinaBlockHeightWrapsRetryableQueryErrors(t *testing.T) {
@@ -310,8 +311,7 @@ func validActionQueryRow(height int64) sqlcdb.ListActionRowsByBlockIDRow {
 
 func actionQueryRow(height int64, actionType string, amount string) sqlcdb.ListActionRowsByBlockIDRow {
 	return sqlcdb.ListActionRowsByBlockIDRow{
-		Height:   height,
-		FeePayer: validAddress,
-		Data:     []string{actionType, "ignored", "ignored", amount},
+		Height: height,
+		Data:   []string{actionType, "7", "1", amount},
 	}
 }

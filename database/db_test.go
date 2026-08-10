@@ -37,7 +37,8 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 		Actions: []*actions.Action{
 			{
 				BlockHeight: 7,
-				FeePayer:    []byte("alice"),
+				XCoordinate: []byte("alice-x"),
+				IsOdd:       true,
 				ActionType:  actions.ActionType_DEPOSIT,
 				Amount:      42,
 			},
@@ -56,7 +57,8 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 
 	// Ensure they have the same values
 	require.Equal(t, got.Actions[0].BlockHeight, want.Actions[0].BlockHeight)
-	require.Equal(t, got.Actions[0].FeePayer, want.Actions[0].FeePayer)
+	require.Equal(t, got.Actions[0].XCoordinate, want.Actions[0].XCoordinate)
+	require.Equal(t, got.Actions[0].IsOdd, want.Actions[0].IsOdd)
 	require.Equal(t, got.Actions[0].ActionType, want.Actions[0].ActionType)
 	require.Equal(t, got.Actions[0].Amount, want.Actions[0].Amount)
 
@@ -438,7 +440,8 @@ func TestDbManagerGetRejectsCorruptPersistedRecord(t *testing.T) {
 				Key: 11,
 				Actions: []*actions.Action{{
 					BlockHeight: 11,
-					FeePayer:    []byte("alice"),
+					XCoordinate: []byte("alice-x"),
+					IsOdd:       true,
 					ActionType:  actions.ActionType_DEPOSIT,
 					Amount:      1,
 				}},
@@ -451,7 +454,8 @@ func TestDbManagerGetRejectsCorruptPersistedRecord(t *testing.T) {
 				Key: 10,
 				Actions: []*actions.Action{{
 					BlockHeight: 10,
-					FeePayer:    []byte("alice"),
+					XCoordinate: []byte("alice-x"),
+					IsOdd:       true,
 					ActionType:  actions.ActionType_DEPOSIT,
 					Amount:      0,
 				}},

@@ -25,9 +25,10 @@ import (
 const queryServiceName = "query.Query"
 
 type wrapperResult struct {
-	height   int64
-	amount   int64
-	feePayer string
+	height      int64
+	amount      int64
+	xCoordinate string
+	isOdd       bool
 }
 
 func TestUnavailableQueryIsRejected(t *testing.T) {
@@ -109,7 +110,7 @@ func TestConcurrentClients(t *testing.T) {
 	for got := range results {
 		require.Equal(t, int64(12), got.height)
 		require.Equal(t, int64(42), got.amount)
-		require.NotEmpty(t, got.feePayer)
+		require.NotEmpty(t, got.xCoordinate)
 		resultCount++
 	}
 	require.Equal(t, 3, resultCount)
@@ -165,14 +166,15 @@ func queryWrapper(ctx context.Context, connection *grpc.ClientConn) (wrapperResu
 		return wrapperResult{}, fmt.Errorf("unexpected action count: %d", len(actionsResponse.Actions))
 	}
 	action := actionsResponse.Actions[0]
-	if action.BlockHeight != 11 || action.ActionType != actions.ActionType_DEPOSIT || len(action.FeePayer) == 0 {
+	if action.BlockHeight != 11 || action.ActionType != actions.ActionType_DEPOSIT || len(action.XCoordinate) == 0 {
 		return wrapperResult{}, errors.New("unexpected action payload")
 	}
 
 	return wrapperResult{
-		height:   heightResponse.BlockHeight,
-		amount:   action.Amount,
-		feePayer: string(action.FeePayer),
+		height:      heightResponse.BlockHeight,
+		amount:      action.Amount,
+		xCoordinate: string(action.XCoordinate),
+		isOdd:       action.IsOdd,
 	}, nil
 }
 
