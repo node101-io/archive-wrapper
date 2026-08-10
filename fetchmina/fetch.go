@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,12 +17,15 @@ import (
 	"github.com/node101-io/archive-wrapper/apperrors"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
 	"github.com/node101-io/mina-signer-go/address"
+	minafield "github.com/node101-io/mina-signer-go/field"
 )
 
 const (
-	actionTypeIndex     = 0
-	actionAmountIndex   = 3
-	minimumActionFields = actionAmountIndex + 1
+	actionTypeIndex        = 0
+	actionXCoordinateIndex = 1
+	actionIsOddIndex       = 2
+	actionAmountIndex      = 3
+	minimumActionFields    = actionAmountIndex + 1
 )
 
 // MinaClient reads best-chain block data and zkApp actions from the archive database.
@@ -114,7 +118,7 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 			continue
 		}
 
-		action, err := actionFromRawData(row.Height, row.FeePayer, row.Data)
+		action, err := actionFromRawData(row.Height, row.Data)
 		if err != nil {
 			return nil, err
 		}
@@ -225,7 +229,7 @@ func (c *MinaClient) bestChainBlockIDForHeight(ctx context.Context, blockHeight 
 	return row.ID, nil
 }
 
-func actionFromRawData(blockHeight int64, feePayer string, data []string) (*actions.Action, error) {
+func actionFromRawData(blockHeight int64, data []string) (*actions.Action, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
@@ -240,7 +244,6 @@ func actionFromRawData(blockHeight int64, feePayer string, data []string) (*acti
 		return nil, nil
 	case actions.ActionType_DEPOSIT, actions.ActionType_WITHDRAW:
 	default:
-		// Ignore action types we do not index yet.
 		return nil, nil
 	}
 
@@ -252,17 +255,50 @@ func actionFromRawData(blockHeight int64, feePayer string, data []string) (*acti
 		return nil, nil
 	}
 
-	minaAddr, err := address.NewAddress(feePayer).Marshal()
+	xCoordinateBytes, err := fieldBytesFromDecimal(data[actionXCoordinateIndex])
+	if err != nil {
+		return nil, err
+	}
+
+	isOdd, err := parseIsOddField(data[actionIsOddIndex])
 	if err != nil {
 		return nil, err
 	}
 
 	return &actions.Action{
 		BlockHeight: blockHeight,
-		FeePayer:    minaAddr,
+		XCoordinate: xCoordinateBytes,
+		IsOdd:       isOdd,
 		ActionType:  actionType,
 		Amount:      amount,
 	}, nil
+}
+
+func fieldBytesFromDecimal(s string) ([]byte, error) {
+	n, ok := new(big.Int).SetString(s, 10)
+	if !ok || n.Sign() < 0 {
+		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account x_coordinate")
+	}
+
+	size := minafield.NewField().ElementSize()
+	b := n.FillBytes(make([]byte, size))
+
+	if _, err := minafield.NewFieldElement(b); err != nil {
+		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account x_cordinate")
+	}
+
+	return b, nil
+}
+
+func parseIsOddField(v string) (bool, error) {
+	switch v {
+	case "0":
+		return false, nil
+	case "1":
+		return true, nil
+	default:
+		return false, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account is_odd")
+	}
 }
 
 func wrapQueryError(operation string, err error) error {

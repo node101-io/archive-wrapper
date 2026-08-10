@@ -88,7 +88,6 @@ WITH action_rows AS (
     zau.id AS account_update_id,
     zc.id AS zkapp_command_id,
     zc.hash,
-    fee_pk.value AS fee_payer,
     COALESCE(
       array_agg(field.field ORDER BY action_field.field_index)
         FILTER (WHERE field.field IS NOT NULL),
@@ -97,8 +96,6 @@ WITH action_rows AS (
   FROM blocks b
   JOIN blocks_zkapp_commands bzc ON bzc.block_id = b.id
   JOIN zkapp_commands zc ON zc.id = bzc.zkapp_command_id
-  JOIN zkapp_fee_payer_body zfpb ON zfpb.id = zc.zkapp_fee_payer_body_id
-  JOIN public_keys fee_pk ON fee_pk.id = zfpb.public_key_id
   JOIN LATERAL unnest(zc.zkapp_account_updates_ids)
     WITH ORDINALITY AS command_update(account_update_id, account_update_index) ON true
   JOIN zkapp_account_update zau ON zau.id = command_update.account_update_id
@@ -122,8 +119,7 @@ WITH action_rows AS (
     action_array.action_index,
     zau.id,
     zc.id,
-    zc.hash,
-    fee_pk.value
+    zc.hash
 ),
 deduped_action_rows AS (
   SELECT DISTINCT ON (zkapp_command_id, account_update_id, action_index)
@@ -133,7 +129,6 @@ deduped_action_rows AS (
     action_index,
     zkapp_command_id,
     account_update_id,
-    fee_payer,
     data
   FROM action_rows
   ORDER BY
@@ -143,7 +138,7 @@ deduped_action_rows AS (
     block_id DESC,
     sequence_no DESC
 )
-SELECT height, fee_payer, data
+SELECT height, data
 FROM deduped_action_rows
 ORDER BY
   height,

@@ -45,6 +45,10 @@ func validateRecord(record actions.DbRecord) error {
 		if act.Amount <= 0 {
 			return cosmosErrors.Wrap(apperrors.ErrInvalidAmount, "non-positive amount")
 		}
+
+		if len(act.XCoordinate) == 0 {
+			return apperrors.ErrEmptyXCoordinate
+		}
 	}
 
 	return nil

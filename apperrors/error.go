@@ -57,8 +57,8 @@ var (
 	ErrInvalidAmount = errors.New("invalid action amount")
 	// ErrInvalidActionData reports that an action payload is missing required fields.
 	ErrInvalidActionData = errors.New("invalid action data")
-	// ErrMissingFeePayer reports that an action payload is missing the fee payer account.
-	ErrMissingFeePayer = errors.New("missing fee payer")
+	// ErrEmptyXCoordinate reports that an action payload is missing the x-coordinate of account's pubkey.
+	ErrEmptyXCoordinate = errors.New("empty x coordinate")
 )
 
 var (
