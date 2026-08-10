@@ -281,10 +281,16 @@ func fieldBytesFromDecimal(s string) ([]byte, error) {
 	}
 
 	size := minafield.NewField().ElementSize()
-	b := n.FillBytes(make([]byte, size))
+	raw := n.Bytes()
+	if len(raw) > size {
+		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account x_coordinate")
+	}
+
+	b := make([]byte, size)
+	copy(b[size-len(raw):], raw)
 
 	if _, err := minafield.NewFieldElement(b); err != nil {
-		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account x_cordinate")
+		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account x_coordinate")
 	}
 
 	return b, nil
