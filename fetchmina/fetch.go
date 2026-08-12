@@ -26,6 +26,7 @@ const (
 	actionXCoordinateIndex = 1
 	actionIsOddIndex       = 2
 	actionAmountIndex      = 3
+	minimumActionFields    = actionAmountIndex + 1
 )
 
 // MinaClient reads best-chain block data and zkApp actions from the archive database.
@@ -229,6 +230,14 @@ func (c *MinaClient) bestChainBlockIDForHeight(ctx context.Context, blockHeight 
 func actionFromRawData(blockHeight int64, data []string) (*actions.Action, error) {
 	if len(data) == 0 {
 		return nil, nil
+	}
+	if len(data) < minimumActionFields {
+		return nil, cosmosErrors.Wrapf(
+			apperrors.ErrInvalidActionData,
+			"action payload has %d fields; expected at least %d",
+			len(data),
+			minimumActionFields,
+		)
 	}
 
 	actionType, amount, err := parseActionData(data)
