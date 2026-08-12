@@ -134,7 +134,7 @@ wait_for_healthy wrapper1
 wrapper_address=$(published_address wrapper1)
 ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper_address" \
   GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
-  go test -tags=container ./tests/container -run '^TestConcurrentClients$' -count=1
+  go test -tags=container,purego ./tests/container -run '^TestConcurrentClients$' -count=1
 
 # A PostgreSQL outage withdraws readiness, and recovery does not require a wrapper restart.
 "${compose[@]}" stop postgres
@@ -142,7 +142,7 @@ wait_for_probe_failure wrapper1
 wrapper_address=$(published_address wrapper1)
 ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper_address" \
   GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
-  go test -tags=container ./tests/container -run '^TestUnavailableQueryIsRejected$' -count=1
+  go test -tags=container,purego ./tests/container -run '^TestUnavailableQueryIsRejected$' -count=1
 "${compose[@]}" start postgres
 wait_for_healthy postgres
 wait_for_healthy wrapper1
@@ -156,7 +156,7 @@ wait_for_healthy wrapper1
 wrapper_address=$(published_address wrapper1)
 ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper_address" \
   GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
-  go test -tags=container ./tests/container -run '^TestConcurrentClients$' -count=1
+  go test -tags=container,purego ./tests/container -run '^TestConcurrentClients$' -count=1
 
 # A second owner of the same LevelDB volume must fail instead of serving stale state.
 "${compose[@]}" --profile lock up --detach --no-deps wrapper-lock
@@ -190,20 +190,20 @@ wrapper2_address=$(published_address wrapper2)
 wrapper3_address=$(published_address wrapper3)
 ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper1_address,$wrapper2_address,$wrapper3_address" \
   GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
-  go test -tags=container ./tests/container -run '^TestWrapperIsolation$' -count=1
+  go test -tags=container,purego ./tests/container -run '^TestWrapperIsolation$' -count=1
 
 "${compose[@]}" stop --timeout 15 wrapper2
 wrapper2_exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$("${compose[@]}" ps --all --quiet wrapper2)")
 [[ $wrapper2_exit_code -eq 0 ]]
 ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper1_address,$wrapper3_address" \
   GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
-  go test -tags=container ./tests/container -run '^TestWrapperIsolation$' -count=1
+  go test -tags=container,purego ./tests/container -run '^TestWrapperIsolation$' -count=1
 
 "${compose[@]}" start wrapper2
 wait_for_healthy wrapper2
 wrapper2_address=$(published_address wrapper2)
 ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper1_address,$wrapper2_address,$wrapper3_address" \
   GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
-  go test -tags=container ./tests/container -run '^TestWrapperIsolation$' -count=1
+  go test -tags=container,purego ./tests/container -run '^TestWrapperIsolation$' -count=1
 
 echo "container lifecycle, shared-client, and wrapper-isolation smoke tests passed"
