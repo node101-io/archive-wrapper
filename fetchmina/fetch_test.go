@@ -73,6 +73,30 @@ func TestActionFromRawDataBuildsAction(t *testing.T) {
 	}
 }
 
+func TestActionFromRawDataRejectsIncompletePayloads(t *testing.T) {
+	tests := []struct {
+		name string
+		data []string
+	}{
+		{name: "one field", data: []string{"1"}},
+		{name: "two fields", data: []string{"1", "7"}},
+		{name: "three fields", data: []string{"1", "7", "1"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var action *actions.Action
+			var err error
+
+			require.NotPanics(t, func() {
+				action, err = actionFromRawData(99, tt.data)
+			})
+			require.Nil(t, action)
+			require.ErrorIs(t, err, apperrors.ErrInvalidActionData)
+		})
+	}
+}
+
 func TestFieldBytesFromDecimal(t *testing.T) {
 	tests := []struct {
 		name  string
