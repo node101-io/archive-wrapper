@@ -305,7 +305,7 @@ func parseActionData(data []string) (actions.ActionType, int64, error) {
 		return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "missing action type")
 	}
 
-	actionTypeValue, err := strconv.Atoi(data[actionTypeIndex])
+	actionTypeValue, err := strconv.ParseInt(data[actionTypeIndex], 10, 32)
 	if err != nil {
 		return 0, 0, apperrors.ErrInvalidActionType
 	}
