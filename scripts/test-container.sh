@@ -125,7 +125,7 @@ wait_for_probe_failure wrapper1
 wrapper_address=$(published_address wrapper1)
 ARCHIVE_WRAPPER_TEST_ADDRESSES="$wrapper_address" \
   GOCACHE="${GOCACHE:-/tmp/go-build-cache}" \
-  go test -tags=container ./tests/container -run '^TestUnavailableQueryIsRejected$' -count=1
+  go test -tags=container,purego ./tests/container -run '^TestUnavailableQueryIsRejected$' -count=1
 
 "${compose[@]}" up --detach postgres
 wait_for_healthy postgres
