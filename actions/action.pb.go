@@ -5,12 +5,11 @@ package actions
 
 import (
 	fmt "fmt"
+	_ "github.com/cosmos/gogoproto/gogoproto"
+	proto "github.com/cosmos/gogoproto/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
-
-	_ "github.com/cosmos/gogoproto/gogoproto"
-	proto "github.com/cosmos/gogoproto/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -53,9 +52,7 @@ func (ActionType) EnumDescriptor() ([]byte, []int) {
 }
 
 type Action struct {
-	BlockHeight int64 `protobuf:"varint,1,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
-	// x_coordinate is the account's affine Pallas x-coordinate encoded as a
-	// 32-byte canonical big-endian field element.
+	BlockHeight int64  `protobuf:"varint,1,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
 	XCoordinate []byte `protobuf:"bytes,2,opt,name=x_coordinate,json=xCoordinate,proto3" json:"x_coordinate,omitempty"`
 	// is_odd selects the affine y-coordinate with odd parity.
 	IsOdd      bool       `protobuf:"varint,3,opt,name=is_odd,json=isOdd,proto3" json:"is_odd,omitempty"`

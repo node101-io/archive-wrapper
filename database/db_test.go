@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/node101-io/archive-wrapper/actions"
@@ -66,16 +67,15 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 
 }
 
-func TestDbManagerInsertRejectsInvalidXCoordinate(t *testing.T) {
+func TestDbManagerInsertAllowsAnyXCoordinate(t *testing.T) {
 	tests := []struct {
-		name    string
-		x       []byte
-		wantErr error
+		name string
+		x    []byte
 	}{
-		{name: "empty", x: nil, wantErr: apperrors.ErrEmptyXCoordinate},
-		{name: "short", x: []byte{1}, wantErr: apperrors.ErrInvalidActionData},
-		{name: "long", x: make([]byte, minafield.NewField().ElementSize()+1), wantErr: apperrors.ErrInvalidActionData},
-		{name: "non-canonical", x: bytes.Repeat([]byte{0xff}, minafield.NewField().ElementSize()), wantErr: apperrors.ErrInvalidActionData},
+		{name: "empty", x: nil},
+		{name: "short", x: []byte{1}},
+		{name: "long", x: make([]byte, minafield.NewField().ElementSize()+1)},
+		{name: "non-canonical", x: bytes.Repeat([]byte{0xff}, minafield.NewField().ElementSize())},
 	}
 
 	for _, tt := range tests {
@@ -85,8 +85,32 @@ func TestDbManagerInsertRejectsInvalidXCoordinate(t *testing.T) {
 			require.NoError(t, err)
 			defer func() { require.NoError(t, manager.Close()) }()
 
-			err = manager.Insert(testRecordWithX(10, tt.x))
-			require.ErrorIs(t, err, tt.wantErr)
+			record := testRecordWithX(10, tt.x)
+			require.NoError(t, manager.Insert(record))
+
+			got, err := manager.Get(record.Key)
+			require.NoError(t, err)
+			require.Equal(t, tt.x, got.Actions[0].XCoordinate)
+		})
+	}
+}
+
+func TestDbManagerInsertAllowsNonPositiveAmount(t *testing.T) {
+	for _, amount := range []int64{0, -1} {
+		t.Run(strconv.FormatInt(amount, 10), func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, manager.Close()) }()
+
+			record := testRecordWithX(10, canonicalXCoordinate())
+			record.Actions[0].Amount = amount
+
+			require.NoError(t, manager.Insert(record))
+
+			got, err := manager.Get(record.Key)
+			require.NoError(t, err)
+			require.Equal(t, amount, got.Actions[0].Amount)
 		})
 	}
 }
@@ -473,38 +497,6 @@ func TestDbManagerGetRejectsCorruptPersistedRecord(t *testing.T) {
 					Amount:      1,
 				}},
 			}),
-		},
-		{
-			name:   "invalid action",
-			height: 10,
-			persisted: marshalRecord(t, actions.DbRecord{
-				Key: 10,
-				Actions: []*actions.Action{{
-					BlockHeight: 10,
-					XCoordinate: canonicalXCoordinate(),
-					IsOdd:       true,
-					ActionType:  actions.ActionType_DEPOSIT,
-					Amount:      0,
-				}},
-			}),
-		},
-		{
-			name:      "short x coordinate",
-			height:    10,
-			persisted: marshalRecord(t, testRecordWithX(10, []byte{1})),
-		},
-		{
-			name:      "long x coordinate",
-			height:    10,
-			persisted: marshalRecord(t, testRecordWithX(10, make([]byte, minafield.NewField().ElementSize()+1))),
-		},
-		{
-			name:   "non-canonical x coordinate",
-			height: 10,
-			persisted: marshalRecord(t, testRecordWithX(
-				10,
-				bytes.Repeat([]byte{0xff}, minafield.NewField().ElementSize()),
-			)),
 		},
 	}
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -91,7 +92,7 @@ func TestFieldBytesFromDecimal(t *testing.T) {
 	}
 }
 
-func TestFieldBytesFromDecimalRejectsInvalidValues(t *testing.T) {
+func TestFieldBytesFromDecimalRejectsMalformedValues(t *testing.T) {
 	tests := []struct {
 		name  string
 		value string
@@ -99,8 +100,6 @@ func TestFieldBytesFromDecimalRejectsInvalidValues(t *testing.T) {
 		{name: "empty", value: ""},
 		{name: "malformed", value: "not-a-number"},
 		{name: "negative", value: "-1"},
-		{name: "field modulus", value: pallasBaseFieldModulus},
-		{name: "above field byte size", value: integerAboveFieldByteSize},
 	}
 
 	for _, tt := range tests {
@@ -113,6 +112,25 @@ func TestFieldBytesFromDecimalRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestFieldBytesFromDecimalForwardsNonCanonicalValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "field modulus", value: pallasBaseFieldModulus},
+		{name: "above field byte size", value: integerAboveFieldByteSize},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fieldBytesFromDecimal(tt.value)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.value, new(big.Int).SetBytes(got).String())
+		})
+	}
+}
+
 func TestParseIsOddField(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -121,6 +139,7 @@ func TestParseIsOddField(t *testing.T) {
 	}{
 		{name: "even", value: "0", want: false},
 		{name: "odd", value: "1", want: true},
+		{name: "contract-invalid value defaults to even", value: "2", want: false},
 	}
 
 	for _, tt := range tests {
@@ -131,25 +150,67 @@ func TestParseIsOddField(t *testing.T) {
 	}
 }
 
-func TestActionFromRawDataRejectsInvalidFields(t *testing.T) {
+func TestActionFromRawDataDefersContractInvariantValidation(t *testing.T) {
 	tests := []struct {
-		name    string
-		data    []string
-		wantErr error
+		name           string
+		data           []string
+		wantActionType actions.ActionType
+		wantAmount     int64
+		wantIsOdd      bool
 	}{
-		{name: "missing fields", data: []string{"1", "7"}, wantErr: apperrors.ErrInvalidActionData},
-		{name: "invalid x coordinate", data: []string{"1", pallasBaseFieldModulus, "1", "42"}, wantErr: apperrors.ErrInvalidActionData},
-		{name: "invalid parity", data: []string{"1", "7", "2", "42"}, wantErr: apperrors.ErrInvalidActionData},
+		{
+			name:           "unspecified action type",
+			data:           []string{"0", "7", "0", "42"},
+			wantActionType: actions.ActionType_UNSPECIFIED,
+			wantAmount:     42,
+		},
+		{
+			name:           "unknown action type",
+			data:           []string{"3", "7", "1", "42"},
+			wantActionType: actions.ActionType(3),
+			wantAmount:     42,
+			wantIsOdd:      true,
+		},
+		{
+			name:           "zero amount",
+			data:           []string{"1", "7", "1", "0"},
+			wantActionType: actions.ActionType_DEPOSIT,
+			wantAmount:     0,
+			wantIsOdd:      true,
+		},
+		{
+			name:           "negative amount",
+			data:           []string{"2", "7", "0", "-1"},
+			wantActionType: actions.ActionType_WITHDRAW,
+			wantAmount:     -1,
+		},
+		{
+			name:           "contract-invalid parity defaults to even",
+			data:           []string{"1", "7", "2", "42"},
+			wantActionType: actions.ActionType_DEPOSIT,
+			wantAmount:     42,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			action, err := actionFromRawData(99, tt.data)
 
-			require.Nil(t, action)
-			require.ErrorIs(t, err, tt.wantErr)
+			require.NoError(t, err)
+			require.NotNil(t, action)
+			require.Equal(t, tt.wantActionType, action.ActionType)
+			require.Equal(t, tt.wantAmount, action.Amount)
+			require.Equal(t, tt.wantIsOdd, action.IsOdd)
 		})
 	}
+}
+
+func TestActionFromRawDataForwardsNonCanonicalXCoordinate(t *testing.T) {
+	action, err := actionFromRawData(99, []string{"1", pallasBaseFieldModulus, "1", "42"})
+
+	require.NoError(t, err)
+	require.NotNil(t, action)
+	require.Equal(t, pallasBaseFieldModulus, new(big.Int).SetBytes(action.XCoordinate).String())
 }
 
 func TestGetMinaBlockHeightWrapsRetryableQueryErrors(t *testing.T) {
