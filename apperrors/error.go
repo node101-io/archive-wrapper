@@ -57,8 +57,6 @@ var (
 	ErrInvalidAmount = errors.New("invalid action amount")
 	// ErrInvalidActionData reports that an action payload cannot be decoded into the wrapper representation.
 	ErrInvalidActionData = errors.New("invalid action data")
-	// ErrEmptyXCoordinate reports that an action payload is missing the x-coordinate of account's pubkey.
-	ErrEmptyXCoordinate = errors.New("empty x coordinate")
 )
 
 var (

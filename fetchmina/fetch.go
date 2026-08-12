@@ -122,9 +122,6 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 		if err != nil {
 			return nil, err
 		}
-		if action == nil {
-			continue
-		}
 
 		result = append(result, *action)
 	}
@@ -280,10 +277,7 @@ func fieldBytesFromDecimal(s string) ([]byte, error) {
 }
 
 func parseIsOddField(v string) bool {
-	if v == "1" {
-		return true
-	}
-	return false
+	return v == "1"
 }
 
 func wrapQueryError(operation string, err error) error {
