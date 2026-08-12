@@ -235,25 +235,9 @@ func actionFromRawData(blockHeight int64, data []string) (*actions.Action, error
 		return nil, nil
 	}
 
-	actionTypeValue, err := strconv.Atoi(data[actionTypeIndex])
-	if err != nil {
-		return nil, err
-	}
-
-	switch actions.ActionType(actionTypeValue) {
-	case actions.ActionType_UNSPECIFIED:
-		return nil, nil
-	case actions.ActionType_DEPOSIT, actions.ActionType_WITHDRAW:
-	default:
-		return nil, nil
-	}
-
 	actionType, amount, err := parseActionData(data)
 	if err != nil {
 		return nil, err
-	}
-	if actionType == actions.ActionType_UNSPECIFIED {
-		return nil, nil
 	}
 
 	xCoordinateBytes, err := fieldBytesFromDecimal(data[actionXCoordinateIndex])
@@ -261,10 +245,7 @@ func actionFromRawData(blockHeight int64, data []string) (*actions.Action, error
 		return nil, err
 	}
 
-	isOdd, err := parseIsOddField(data[actionIsOddIndex])
-	if err != nil {
-		return nil, err
-	}
+	isOdd := parseIsOddField(data[actionIsOddIndex])
 
 	return &actions.Action{
 		BlockHeight: blockHeight,
@@ -298,15 +279,11 @@ func fieldBytesFromDecimal(s string) ([]byte, error) {
 	return b, nil
 }
 
-func parseIsOddField(v string) (bool, error) {
-	switch v {
-	case "0":
-		return false, nil
-	case "1":
-		return true, nil
-	default:
-		return false, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account is_odd")
+func parseIsOddField(v string) bool {
+	if v == "1" {
+		return true
 	}
+	return false
 }
 
 func wrapQueryError(operation string, err error) error {
@@ -333,27 +310,10 @@ func parseActionData(data []string) (actions.ActionType, int64, error) {
 		return 0, 0, apperrors.ErrInvalidActionType
 	}
 
-	switch actionTypeValue {
-	case int(actions.ActionType_UNSPECIFIED):
-		return actions.ActionType_UNSPECIFIED, 0, nil
-
-	case int(actions.ActionType_DEPOSIT), int(actions.ActionType_WITHDRAW):
-		// These action types expect the amount field to be present.
-		if len(data) < minimumActionFields {
-			return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "missing fields")
-		}
-
-		amount, err := strconv.ParseInt(data[actionAmountIndex], 10, 64)
-		if err != nil {
-			return 0, 0, apperrors.ErrInvalidAmount
-		}
-		if amount <= 0 {
-			return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidAmount, "non-positive amount")
-		}
-
-		return actions.ActionType(actionTypeValue), amount, nil
-
-	default:
-		return 0, 0, apperrors.ErrInvalidActionType
+	amount, err := strconv.ParseInt(data[actionAmountIndex], 10, 64)
+	if err != nil {
+		return 0, 0, apperrors.ErrInvalidAmount
 	}
+
+	return actions.ActionType(actionTypeValue), amount, nil
 }

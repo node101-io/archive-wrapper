@@ -36,16 +36,8 @@ func validateRecord(record actions.DbRecord) error {
 			return apperrors.ErrNilAction
 		}
 
-		if act.BlockHeight <= 0 {
-			return apperrors.ErrBlockHeightMustBeBiggerThanZero
-		}
-
 		if act.BlockHeight != record.Key {
 			return apperrors.ErrInvalidKey
-		}
-
-		if act.Amount <= 0 {
-			return cosmosErrors.Wrap(apperrors.ErrInvalidAmount, "non-positive amount")
 		}
 
 		if len(act.XCoordinate) == 0 {

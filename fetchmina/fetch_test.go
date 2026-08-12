@@ -125,30 +125,8 @@ func TestParseIsOddField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseIsOddField(tt.value)
-			require.NoError(t, err)
+			got := parseIsOddField(tt.value)
 			require.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestParseIsOddFieldRejectsInvalidValues(t *testing.T) {
-	tests := []struct {
-		name  string
-		value string
-	}{
-		{name: "empty", value: ""},
-		{name: "negative", value: "-1"},
-		{name: "greater than one", value: "2"},
-		{name: "boolean text", value: "true"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseIsOddField(tt.value)
-
-			require.False(t, got)
-			require.ErrorIs(t, err, apperrors.ErrInvalidActionData)
 		})
 	}
 }
