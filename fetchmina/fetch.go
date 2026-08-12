@@ -1,7 +1,6 @@
 package fetchmina
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 	"github.com/node101-io/archive-wrapper/apperrors"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
 	"github.com/node101-io/mina-signer-go/address"
+
 	minafield "github.com/node101-io/mina-signer-go/field"
 )
 
@@ -26,7 +26,6 @@ const (
 	actionXCoordinateIndex = 1
 	actionIsOddIndex       = 2
 	actionAmountIndex      = 3
-	minimumActionFields    = actionAmountIndex + 1
 )
 
 // MinaClient reads best-chain block data and zkApp actions from the archive database.
@@ -85,7 +84,7 @@ func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 	return height, nil
 }
 
-// FetchActions returns supported zkApp actions for blockHeight on the cached best chain.
+// FetchActions returns zkApp actions for blockHeight on the cached best chain.
 // It returns ErrBestChainBlockNotFound when the selected chain has no block at that height yet.
 func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]actions.Action, error) {
 	if blockHeight <= 0 {
@@ -259,22 +258,23 @@ func actionFromRawData(blockHeight int64, data []string) (*actions.Action, error
 func fieldBytesFromDecimal(s string) ([]byte, error) {
 	n, ok := new(big.Int).SetString(s, 10)
 	if !ok || n.Sign() < 0 {
-		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account x_coordinate")
+		return nil, cosmosErrors.Wrap(
+			apperrors.ErrInvalidActionData,
+			"invalid account x_coordinate",
+		)
 	}
 
-	size := minafield.NewField().ElementSize()
 	raw := n.Bytes()
-	if len(raw) > size {
-		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account x_coordinate")
+	size := minafield.NewField().ElementSize()
+
+	// Oversized/non-canonical values are forwarded for Pulsar to reject.
+	if len(raw) >= size {
+		return raw, nil
 	}
 
+	// Preserve the existing 32-byte wire representation for valid values.
 	b := make([]byte, size)
 	copy(b[size-len(raw):], raw)
-
-	fieldElement, err := minafield.NewFieldElement(b)
-	if err != nil || !bytes.Equal(fieldElement.Bytes(), b) {
-		return nil, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "invalid account x_coordinate")
-	}
 
 	return b, nil
 }

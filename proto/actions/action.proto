@@ -16,8 +16,7 @@ message Action {
   option (gogoproto.goproto_getters) = false;
 
   int64 block_height = 1;
-  // x_coordinate is the account's affine Pallas x-coordinate encoded as a
-  // 32-byte canonical big-endian field element.
+
   bytes x_coordinate = 2;
   // is_odd selects the affine y-coordinate with odd parity.
   bool is_odd = 3;
