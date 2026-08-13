@@ -34,7 +34,8 @@ func TestQuery(t *testing.T) {
 		Actions: []*actions.Action{
 			{
 				BlockHeight: 7,
-				FeePayer:    []byte("alice"),
+				XCoordinate: append(make([]byte, 31), 1),
+				IsOdd:       true,
 				ActionType:  actions.ActionType_DEPOSIT,
 				Amount:      42,
 			},
@@ -45,7 +46,8 @@ func TestQuery(t *testing.T) {
 		Actions: []*actions.Action{
 			{
 				BlockHeight: 9,
-				FeePayer:    []byte("bob"),
+				XCoordinate: append(make([]byte, 31), 1),
+				IsOdd:       false,
 				ActionType:  actions.ActionType_WITHDRAW,
 				Amount:      7,
 			},
@@ -72,12 +74,14 @@ func TestQuery(t *testing.T) {
 	require.Len(t, got.Actions, 2)
 
 	require.Equal(t, want.Actions[0].BlockHeight, got.Actions[0].BlockHeight)
-	require.Equal(t, want.Actions[0].FeePayer, got.Actions[0].FeePayer)
+	require.Equal(t, want.Actions[0].XCoordinate, got.Actions[0].XCoordinate)
+	require.Equal(t, want.Actions[0].IsOdd, got.Actions[0].IsOdd)
 	require.Equal(t, want.Actions[0].ActionType, got.Actions[0].ActionType)
 	require.Equal(t, want.Actions[0].Amount, got.Actions[0].Amount)
 
 	require.Equal(t, second.Actions[0].BlockHeight, got.Actions[1].BlockHeight)
-	require.Equal(t, second.Actions[0].FeePayer, got.Actions[1].FeePayer)
+	require.Equal(t, second.Actions[0].XCoordinate, got.Actions[1].XCoordinate)
+	require.Equal(t, second.Actions[0].IsOdd, got.Actions[1].IsOdd)
 	require.Equal(t, second.Actions[0].ActionType, got.Actions[1].ActionType)
 	require.Equal(t, second.Actions[0].Amount, got.Actions[1].Amount)
 }

@@ -164,7 +164,7 @@ func TestRunRuntimeStopsCleanlyOnExternalCancellation(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "db")
-	controlSocketPath := filepath.Join(root, "control.sock")
+	controlSocketPath := testSocketPath(t, "runtime")
 	inputs := testRuntimeInputs(dbPath, controlSocketPath)
 	inputs.Config.GRPCListenAddress = reserveLoopbackAddress(t)
 	inputs.BridgeParams.ContractAddress = testBridgeContractAddress

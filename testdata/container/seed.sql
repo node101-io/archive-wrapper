@@ -12,8 +12,8 @@ INSERT INTO zkapp_fee_payer_body (id, public_key_id) VALUES (1, 2);
 INSERT INTO account_identifiers (id, public_key_id) VALUES (1, 1);
 INSERT INTO zkapp_field (id, field) VALUES
   (1, '1'),
-  (2, 'ignored'),
-  (3, 'ignored'),
+  (2, '7'),
+  (3, '1'),
   (4, '42');
 INSERT INTO zkapp_field_array (id, element_ids) VALUES (1, ARRAY[1, 2, 3, 4]::bigint[]);
 INSERT INTO zkapp_events (id, element_ids) VALUES (1, ARRAY[1]::bigint[]);

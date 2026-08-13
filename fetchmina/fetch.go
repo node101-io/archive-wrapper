@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,12 +17,16 @@ import (
 	"github.com/node101-io/archive-wrapper/apperrors"
 	sqlcdb "github.com/node101-io/archive-wrapper/fetchmina/db"
 	"github.com/node101-io/mina-signer-go/address"
+
+	minafield "github.com/node101-io/mina-signer-go/field"
 )
 
 const (
-	actionTypeIndex     = 0
-	actionAmountIndex   = 3
-	minimumActionFields = actionAmountIndex + 1
+	actionTypeIndex        = 0
+	actionXCoordinateIndex = 1
+	actionIsOddIndex       = 2
+	actionAmountIndex      = 3
+	minimumActionFields    = actionAmountIndex + 1
 )
 
 // MinaClient reads best-chain block data and zkApp actions from the archive database.
@@ -80,7 +85,7 @@ func (c *MinaClient) GetMinaBlockHeight(ctx context.Context) (int64, error) {
 	return height, nil
 }
 
-// FetchActions returns supported zkApp actions for blockHeight on the cached best chain.
+// FetchActions returns zkApp actions for blockHeight on the cached best chain.
 // It returns ErrBestChainBlockNotFound when the selected chain has no block at that height yet.
 func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]actions.Action, error) {
 	if blockHeight <= 0 {
@@ -114,12 +119,9 @@ func (c *MinaClient) FetchActions(ctx context.Context, blockHeight int64) ([]act
 			continue
 		}
 
-		action, err := actionFromRawData(row.Height, row.FeePayer, row.Data)
+		action, err := actionFromRawData(row.Height, row.Data)
 		if err != nil {
 			return nil, err
-		}
-		if action == nil {
-			continue
 		}
 
 		result = append(result, *action)
@@ -225,44 +227,66 @@ func (c *MinaClient) bestChainBlockIDForHeight(ctx context.Context, blockHeight 
 	return row.ID, nil
 }
 
-func actionFromRawData(blockHeight int64, feePayer string, data []string) (*actions.Action, error) {
+func actionFromRawData(blockHeight int64, data []string) (*actions.Action, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
-
-	actionTypeValue, err := strconv.Atoi(data[actionTypeIndex])
-	if err != nil {
-		return nil, err
-	}
-
-	switch actions.ActionType(actionTypeValue) {
-	case actions.ActionType_UNSPECIFIED:
-		return nil, nil
-	case actions.ActionType_DEPOSIT, actions.ActionType_WITHDRAW:
-	default:
-		// Ignore action types we do not index yet.
-		return nil, nil
+	if len(data) < minimumActionFields {
+		return nil, cosmosErrors.Wrapf(
+			apperrors.ErrInvalidActionData,
+			"action payload has %d fields; expected at least %d",
+			len(data),
+			minimumActionFields,
+		)
 	}
 
 	actionType, amount, err := parseActionData(data)
 	if err != nil {
 		return nil, err
 	}
-	if actionType == actions.ActionType_UNSPECIFIED {
-		return nil, nil
-	}
 
-	minaAddr, err := address.NewAddress(feePayer).Marshal()
+	xCoordinateBytes, err := fieldBytesFromDecimal(data[actionXCoordinateIndex])
 	if err != nil {
 		return nil, err
 	}
 
+	isOdd := parseIsOddField(data[actionIsOddIndex])
+
 	return &actions.Action{
 		BlockHeight: blockHeight,
-		FeePayer:    minaAddr,
+		XCoordinate: xCoordinateBytes,
+		IsOdd:       isOdd,
 		ActionType:  actionType,
 		Amount:      amount,
 	}, nil
+}
+
+func fieldBytesFromDecimal(s string) ([]byte, error) {
+	n, ok := new(big.Int).SetString(s, 10)
+	if !ok || n.Sign() < 0 {
+		return nil, cosmosErrors.Wrap(
+			apperrors.ErrInvalidActionData,
+			"invalid account x_coordinate",
+		)
+	}
+
+	raw := n.Bytes()
+	size := minafield.NewField().ElementSize()
+
+	// Oversized/non-canonical values are forwarded for Pulsar to reject.
+	if len(raw) >= size {
+		return raw, nil
+	}
+
+	// Preserve the existing 32-byte wire representation for valid values.
+	b := make([]byte, size)
+	copy(b[size-len(raw):], raw)
+
+	return b, nil
+}
+
+func parseIsOddField(v string) bool {
+	return v == "1"
 }
 
 func wrapQueryError(operation string, err error) error {
@@ -284,32 +308,15 @@ func parseActionData(data []string) (actions.ActionType, int64, error) {
 		return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "missing action type")
 	}
 
-	actionTypeValue, err := strconv.Atoi(data[actionTypeIndex])
+	actionTypeValue, err := strconv.ParseInt(data[actionTypeIndex], 10, 32)
 	if err != nil {
 		return 0, 0, apperrors.ErrInvalidActionType
 	}
 
-	switch actionTypeValue {
-	case int(actions.ActionType_UNSPECIFIED):
-		return actions.ActionType_UNSPECIFIED, 0, nil
-
-	case int(actions.ActionType_DEPOSIT), int(actions.ActionType_WITHDRAW):
-		// These action types expect the amount field to be present.
-		if len(data) < minimumActionFields {
-			return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidActionData, "missing fields")
-		}
-
-		amount, err := strconv.ParseInt(data[actionAmountIndex], 10, 64)
-		if err != nil {
-			return 0, 0, apperrors.ErrInvalidAmount
-		}
-		if amount <= 0 {
-			return 0, 0, cosmosErrors.Wrap(apperrors.ErrInvalidAmount, "non-positive amount")
-		}
-
-		return actions.ActionType(actionTypeValue), amount, nil
-
-	default:
-		return 0, 0, apperrors.ErrInvalidActionType
+	amount, err := strconv.ParseInt(data[actionAmountIndex], 10, 64)
+	if err != nil {
+		return 0, 0, apperrors.ErrInvalidAmount
 	}
+
+	return actions.ActionType(actionTypeValue), amount, nil
 }

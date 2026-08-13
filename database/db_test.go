@@ -1,16 +1,19 @@
 package database
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/node101-io/archive-wrapper/actions"
 	"github.com/node101-io/archive-wrapper/apperrors"
+	minafield "github.com/node101-io/mina-signer-go/field"
 
 	proto "github.com/cosmos/gogoproto/proto"
 	"github.com/stretchr/testify/require"
@@ -37,7 +40,8 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 		Actions: []*actions.Action{
 			{
 				BlockHeight: 7,
-				FeePayer:    []byte("alice"),
+				XCoordinate: canonicalXCoordinate(),
+				IsOdd:       true,
 				ActionType:  actions.ActionType_DEPOSIT,
 				Amount:      42,
 			},
@@ -56,10 +60,59 @@ func TestDbManager_InsertThenGet(t *testing.T) {
 
 	// Ensure they have the same values
 	require.Equal(t, got.Actions[0].BlockHeight, want.Actions[0].BlockHeight)
-	require.Equal(t, got.Actions[0].FeePayer, want.Actions[0].FeePayer)
+	require.Equal(t, got.Actions[0].XCoordinate, want.Actions[0].XCoordinate)
+	require.Equal(t, got.Actions[0].IsOdd, want.Actions[0].IsOdd)
 	require.Equal(t, got.Actions[0].ActionType, want.Actions[0].ActionType)
 	require.Equal(t, got.Actions[0].Amount, want.Actions[0].Amount)
 
+}
+
+func TestDbManagerInsertAllowsAnyXCoordinate(t *testing.T) {
+	tests := []struct {
+		name string
+		x    []byte
+	}{
+		{name: "empty", x: nil},
+		{name: "short", x: []byte{1}},
+		{name: "long", x: make([]byte, minafield.NewField().ElementSize()+1)},
+		{name: "non-canonical", x: bytes.Repeat([]byte{0xff}, minafield.NewField().ElementSize())},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, manager.Close()) }()
+
+			record := testRecordWithX(10, tt.x)
+			require.NoError(t, manager.Insert(record))
+
+			got, err := manager.Get(record.Key)
+			require.NoError(t, err)
+			require.Equal(t, tt.x, got.Actions[0].XCoordinate)
+		})
+	}
+}
+
+func TestDbManagerInsertAllowsNonPositiveAmount(t *testing.T) {
+	for _, amount := range []int64{0, -1} {
+		t.Run(strconv.FormatInt(amount, 10), func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			manager, err := NewDbManager(t.TempDir(), blockHeightDatabaseKey, logger)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, manager.Close()) }()
+
+			record := testRecordWithX(10, canonicalXCoordinate())
+			record.Actions[0].Amount = amount
+
+			require.NoError(t, manager.Insert(record))
+
+			got, err := manager.Get(record.Key)
+			require.NoError(t, err)
+			require.Equal(t, amount, got.Actions[0].Amount)
+		})
+	}
 }
 
 func TestDbManagerInsertBlockHeight(t *testing.T) {
@@ -438,22 +491,10 @@ func TestDbManagerGetRejectsCorruptPersistedRecord(t *testing.T) {
 				Key: 11,
 				Actions: []*actions.Action{{
 					BlockHeight: 11,
-					FeePayer:    []byte("alice"),
+					XCoordinate: canonicalXCoordinate(),
+					IsOdd:       true,
 					ActionType:  actions.ActionType_DEPOSIT,
 					Amount:      1,
-				}},
-			}),
-		},
-		{
-			name:   "invalid action",
-			height: 10,
-			persisted: marshalRecord(t, actions.DbRecord{
-				Key: 10,
-				Actions: []*actions.Action{{
-					BlockHeight: 10,
-					FeePayer:    []byte("alice"),
-					ActionType:  actions.ActionType_DEPOSIT,
-					Amount:      0,
 				}},
 			}),
 		},
@@ -485,6 +526,23 @@ func marshalRecord(t *testing.T, record actions.DbRecord) []byte {
 	encoded, err := proto.Marshal(&record)
 	require.NoError(t, err)
 	return encoded
+}
+
+func canonicalXCoordinate() []byte {
+	return minafield.NewField().FromUint64(7).Bytes()
+}
+
+func testRecordWithX(height int64, x []byte) actions.DbRecord {
+	return actions.DbRecord{
+		Key: height,
+		Actions: []*actions.Action{{
+			BlockHeight: height,
+			XCoordinate: x,
+			IsOdd:       true,
+			ActionType:  actions.ActionType_DEPOSIT,
+			Amount:      1,
+		}},
+	}
 }
 
 func testDeploymentMetadata() DeploymentMetadata {

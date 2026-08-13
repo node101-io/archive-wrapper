@@ -51,14 +51,12 @@ var (
 
 	// ErrNilAction reports that a nil action was encountered where a concrete action was required.
 	ErrNilAction = errors.New("nil action")
-	// ErrInvalidActionType reports that an action payload contains an unsupported type.
+	// ErrInvalidActionType reports that an action-type field cannot be parsed as an integer.
 	ErrInvalidActionType = errors.New("invalid action type")
-	// ErrInvalidAmount reports that an action amount is malformed or non-positive.
+	// ErrInvalidAmount reports that an action amount cannot be parsed as a signed 64-bit integer.
 	ErrInvalidAmount = errors.New("invalid action amount")
-	// ErrInvalidActionData reports that an action payload is missing required fields.
+	// ErrInvalidActionData reports that an action payload cannot be decoded into the wrapper representation.
 	ErrInvalidActionData = errors.New("invalid action data")
-	// ErrMissingFeePayer reports that an action payload is missing the fee payer account.
-	ErrMissingFeePayer = errors.New("missing fee payer")
 )
 
 var (

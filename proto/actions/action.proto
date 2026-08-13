@@ -16,9 +16,12 @@ message Action {
   option (gogoproto.goproto_getters) = false;
 
   int64 block_height = 1;
-  bytes fee_payer = 2;
-  ActionType action_type = 3;
-  int64 amount = 4;
+
+  bytes x_coordinate = 2;
+  // is_odd selects the affine y-coordinate with odd parity.
+  bool is_odd = 3;
+  ActionType action_type = 4;
+  int64 amount = 5;
 }
 
 message DbRecord {

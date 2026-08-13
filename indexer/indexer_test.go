@@ -40,8 +40,8 @@ func TestNewIndexerRejectsNilConnection(t *testing.T) {
 
 func TestIndexActionsBuildsRecord(t *testing.T) {
 	items := []actions.Action{
-		{BlockHeight: 7, FeePayer: []byte("alice"), ActionType: actions.ActionType_DEPOSIT, Amount: 5},
-		{BlockHeight: 7, FeePayer: []byte("bob"), ActionType: actions.ActionType_WITHDRAW, Amount: 3},
+		{BlockHeight: 7, XCoordinate: append(make([]byte, 31), 1), IsOdd: true, ActionType: actions.ActionType_DEPOSIT, Amount: 5},
+		{BlockHeight: 7, XCoordinate: append(make([]byte, 31), 1), IsOdd: false, ActionType: actions.ActionType_WITHDRAW, Amount: 3},
 	}
 
 	record, err := IndexActions(items, 7)
@@ -49,8 +49,10 @@ func TestIndexActionsBuildsRecord(t *testing.T) {
 
 	require.Equal(t, int64(7), record.Key)
 	require.Len(t, record.Actions, 2)
-	require.Equal(t, []byte("alice"), record.Actions[0].FeePayer)
-	require.Equal(t, []byte("bob"), record.Actions[1].FeePayer)
+	require.Equal(t, append(make([]byte, 31), 1), record.Actions[0].XCoordinate)
+	require.True(t, record.Actions[0].IsOdd)
+	require.Equal(t, append(make([]byte, 31), 1), record.Actions[1].XCoordinate)
+	require.False(t, record.Actions[1].IsOdd)
 }
 
 func TestWithRetryReturnsContextErrorWhenCanceled(t *testing.T) {
@@ -105,7 +107,8 @@ func TestRunReconcilesAuthoritativeTipForDuplicateAndOutOfOrderNotificationPaylo
 		Key: 68,
 		Actions: []*actions.Action{{
 			BlockHeight: 68,
-			FeePayer:    []byte(testContractAddress),
+			XCoordinate: append(make([]byte, 31), 1),
+			IsOdd:       true,
 			ActionType:  actions.ActionType_DEPOSIT,
 			Amount:      42,
 		}},
@@ -669,8 +672,7 @@ func notification(payload string) *pgconn.Notification {
 
 func validActionRow(height int64) sqlcdb.ListActionRowsByBlockIDRow {
 	return sqlcdb.ListActionRowsByBlockIDRow{
-		Height:   height,
-		FeePayer: testContractAddress,
-		Data:     []string{"1", "ignored", "ignored", "42"},
+		Height: height,
+		Data:   []string{"1", "7", "1", "42"},
 	}
 }
